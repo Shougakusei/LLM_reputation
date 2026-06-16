@@ -23,7 +23,7 @@ import sys
 from dotenv import load_dotenv
 
 from src.core.config import load_episode
-from src.core.orchestrator import run_episode
+from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, judge_episode
 from src.population import make_population
 from src.providers.base import ProviderError
@@ -63,6 +63,10 @@ def narrate_round(r, plan, recs):
                 f"    predicted: {rec.a_id} guessed {rec.b_id}={rec.a_predicted}, "
                 f"{rec.b_id} guessed {rec.a_id}={rec.b_predicted}"
             )
+        if not rec.finished:
+            # Aborted pairing (LLM error): no numbers/outcome/payoffs were produced.
+            print("    (pairing aborted — LLM call failed, no choices made)")
+            continue
         print(
             f"    choices: {rec.a_id}={rec.a_number}, {rec.b_id}={rec.b_number}"
             f"  ->  {rec.outcome}   (payoffs {rec.a_id}={rec.a_payoff:g}, {rec.b_id}={rec.b_payoff:g})"
@@ -91,6 +95,15 @@ async def main():
 
     try:
         await run_episode(cfg, pop, observer=observer)
+    except EpisodeAborted as e:
+        # An aborted pairing (LLM failure) stops the episode. The usual cause is the
+        # provider: a wrong key in .env, an exhausted balance/credits, or an unavailable model.
+        print(
+            f"\nepisode aborted at round {e.round}: an LLM call failed "
+            f"({e.rec.a_id} vs {e.rec.b_id}). Check the provider from the config — "
+            f"the key in .env, the credit balance, and model availability."
+        )
+        return
     finally:
         await pop.aclose()
 
