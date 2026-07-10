@@ -5,8 +5,8 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
 (NOT str.format — the templates contain real JSON braces). The rules/payoffs in system are
 now substituted by Agent.system_prompt (from AgentSpec.system_prompt), not these builders:
     talk:                 {partner} {round} {feed}
-    decide:               {partner} {round} {feed} {reason}; the rationale flag selects decide_prompt|_bare
-    predict:              {partner} {round} {feed} {reason}; the rationale flag selects predict_prompt|_bare
+    decide:               {partner} {round} {feed} {reason}; one decide_prompt (rationale flag gates reading the rationale)
+    predict:              {partner} {round} {feed} {reason}; one predict_prompt (rationale flag gates reading the rationale)
     reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
     notes:                {round} {score}
 
@@ -33,10 +33,9 @@ def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: flo
 
     `reason` — why the chat closed (turn limit / mutual agreement); substituted into the
     {reason} closing line so it reads word-for-word as in the history of past rounds.
-    The rationale flag selects the whole template: decide_prompt (reasoning) or decide_prompt_bare."""
+    One template (cfg.decide_prompt); the rationale flag only gates reading the rationale."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    tmpl = cfg.decide_prompt if cfg.rationale else cfg.decide_prompt_bare
-    return _fill(tmpl, partner, round, feed_block, score).replace("{reason}", reason)
+    return _fill(cfg.decide_prompt, partner, round, feed_block, score).replace("{reason}", reason)
 
 
 def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
@@ -44,11 +43,10 @@ def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: fl
     """Partner-number prediction context (prediction strategy).
 
     Mirrors decide: the same static transcript + closing line with {reason}, only the
-    directive is different (predict the opponent's number). The rationale flag likewise
-    selects the whole template: predict_prompt or predict_prompt_bare."""
+    directive is different (predict the opponent's number). One template (cfg.predict_prompt);
+    the rationale flag only gates reading the rationale."""
     feed_block = feed if feed else "(no messages were exchanged)"
-    tmpl = cfg.predict_prompt if cfg.rationale else cfg.predict_prompt_bare
-    return _fill(tmpl, partner, round, feed_block, score).replace("{reason}", reason)
+    return _fill(cfg.predict_prompt, partner, round, feed_block, score).replace("{reason}", reason)
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,

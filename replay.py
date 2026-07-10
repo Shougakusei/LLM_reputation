@@ -273,7 +273,7 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
     # The provider is shared across the population; in old runs it lived on each agent — fallback.
     prov = pop.get("provider") or (pop["agents"][0].get("provider") if pop["agents"] else None)
     game_cfg = cfg.get("game", {})
-    show_rationale = game_cfg.get("rationale", True)        # defaults match GameCfg
+    show_rationale = game_cfg.get("rationale", False)       # defaults match GameCfg
     show_reflection = game_cfg.get("reflection", False)     # what the run was configured to elicit
     # memory notes are printed only with the --notes flag (hidden by default); the lines will
     # still only appear where notes were actually consolidated (a_notes/b_notes != None).

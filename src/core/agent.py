@@ -110,19 +110,17 @@ class AgentSetup:
 
 
 # Correction text for retries lives in the config (GameCfg.*_correction), not hardcoded here.
-# For phases assembled without game_cfg (unit tests), we take the default GameCfg(). DECIDE/PREDICT
-# pick the bare/rationale variant using the same rationale flag as the phase prompt itself —
-# so in bare mode the correction no longer requires rationale (the old _CORRECTION required it,
-# contradicting the prompt).
+# For phases assembled without game_cfg (unit tests), we take the default GameCfg(). One correction
+# per phase now (DECIDE/PREDICT no longer have a _bare variant) — write it to match the phase prompt.
 _DEFAULT_GAME_CFG = GameCfg()
 
 
 def _correction(game_cfg: "GameCfg | None", kind: PhaseKind) -> str:
     cfg = game_cfg if game_cfg is not None else _DEFAULT_GAME_CFG
     if kind is PhaseKind.DECIDE:
-        return cfg.decide_correction if cfg.rationale else cfg.decide_correction_bare
+        return cfg.decide_correction
     if kind is PhaseKind.PREDICT:
-        return cfg.predict_correction if cfg.rationale else cfg.predict_correction_bare
+        return cfg.predict_correction
     if kind is PhaseKind.TALK:
         return cfg.talk_correction
     if kind is PhaseKind.REFLECT:

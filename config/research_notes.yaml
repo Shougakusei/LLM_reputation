@@ -1,5 +1,6 @@
-# Research condition: PLAIN / baseline (no rationale, no memory notes; number-only decide_prompt).
-#   uv run python research.py   (point CONFIG/DB at this file — e.g. DB = qwen3.db)
+# Research condition: + MEMORY NOTES (no rationale; every N rounds the agent folds its memory
+# into private notes that then replace the raw history). decide_prompt (number only) + notes_* keys.
+#   uv run python research.py   (point CONFIG/DB at this file — e.g. DB = qwen3_mem_notes.db)
 
 # ── Episode (EpisodeCfg) ──────────────────────────────────
 seed: random
@@ -57,7 +58,7 @@ population:
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
-    # reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
+    reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
                           # non-reasoning models ignore the field. reasoning_effort (high/max) — not set.
   kind: roster
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
@@ -65,9 +66,9 @@ population:
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
   max_talk_turns: 10
-  memory_notes_every: 0
+  memory_notes_every: 1
   payoffs: {R: 3, T: 5, P: 1, S: 0}
-  rationale: false
+  rationale: false           # number only -> the decide_prompt asks for {"number"} only
   reflection: false
   talk_stop_rule: both_ready_committed
 
@@ -104,3 +105,14 @@ game:
     {my_number_line}
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
+
+  notes_view: |-
+    <game>Your notes from earlier rounds:</game>
+    {notes_line}
+  notes_buffer: |-
+    <game>Your rounds since those notes:</game>
+    {buffer}
+  notes_prompt: |-
+    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please write your notes in the following JSON format: {"notes": "<your notes>"}</game>
+  note_correction: |-
+    Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}

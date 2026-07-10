@@ -14,7 +14,7 @@ def _agent(replies):
 
 async def test_direct_returns_parsed_number_no_prediction():
     agent = _agent(['{"number": 6, "rationale": "because"}'])
-    d = await DirectStrategy(GameCfg()).decide(agent, "A2", round=1, feed="")
+    d = await DirectStrategy(GameCfg(rationale=True)).decide(agent, "A2", round=1, feed="")
     assert d.number == 6
     assert d.rationale == "because"
     assert d.predicted is None

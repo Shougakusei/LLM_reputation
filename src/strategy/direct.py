@@ -15,7 +15,7 @@ class DirectStrategy:
         """Initialize the strategy with the game configuration.
 
         Args:
-            game_cfg: Game configuration (static decide_prompt/_bare templates + rationale flag).
+            game_cfg: Game configuration (static decide_prompt template + rationale flag).
         """
         self._game = game_cfg
         self._rationale = game_cfg.rationale

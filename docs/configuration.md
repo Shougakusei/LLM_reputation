@@ -64,7 +64,7 @@ Core knobs:
 | `payoffs` | `{R, T, P, S}` — reference `3, 5, 1, 0`; must satisfy `T > R > P > S` and `2R > T + S` |
 | `max_talk_turns` | hard ceiling on cheap-talk messages per round |
 | `talk_stop_rule` | how cheap talk ends; all variants stop only when **both** agents set `finish: true` — `both_ready_latch` (default), `both_ready_revocable`, `both_ready_committed` (see [architecture.md](./architecture.md)) |
-| `rationale` | `true` (default) = agents reason before choosing (and it is stored); `false` = number only |
+| `rationale` | `true` = the returned rationale is read/stored (write `decide_prompt` to ask for it); `false` (default) = number only |
 | `reflection` | `true` = one extra post-game REFLECT call per agent, stored in memory (default `false`) |
 | `memory_notes_every` | `0` = off; every N rounds an agent has actually played it rewrites its memory into private notes (default `0`) |
 
@@ -73,24 +73,33 @@ substituted — never assembled from text chunks. Each defaults to a `DEFAULT_*`
 `src/core/config.py`; delete a key to use the default.
 
 - Instruction prompts: `talk_prompt`, `talk_open_prompt` (first turn of a round, empty
-  feed), `decide_prompt` / `decide_prompt_bare`, `predict_prompt` / `predict_prompt_bare`,
-  `reflect_prompt`, `notes_prompt`. The `rationale` flag picks the full vs `_bare` DECIDE/PREDICT
-  template. `predict_prompt` mirrors `decide_prompt` byte-for-byte except the directive.
+  feed), `decide_prompt`, `predict_prompt`, `reflect_prompt`, `notes_prompt`. There is one
+  `decide_prompt`/`predict_prompt` (no `_bare` variant); the `rationale` flag does not pick a
+  template — it only gates whether the returned rationale is read/stored, so write the single prompt
+  to match (`{"rationale","number"}` when on, `{"number"}` when off). `predict_prompt` mirrors
+  `decide_prompt` except the directive.
   Placeholders: `{round} {partner} {feed} {reason}` (`{reason}` = how the chat closed).
-- Transcript line templates (how history is replayed): `history_round_prompt`,
-  `msg_self` / `msg_partner`, `history_close_prompt` / `history_close_prompt_rationale`,
-  `reason_limit` / `reason_agreed`, `history_result_prompt` (carries the running score as
-  `{total}` — the score lives in result lines, not talk/decide headers), and three optional
-  **private trace** lines, each behind its own flag: `history_rationale_prompt`
-  (`show_rationale`), `history_predicted_prompt` (`show_predicted`; prediction agents only),
-  `history_reflection_prompt` (`show_reflection`). All three flags default `true`.
-- Notes rendering: `notes_block_prompt` (`<you>{notes}</you>` — the agent's private memo),
-  `notes_header` / `buffer_header` (`<game>`-tagged section labels framing notes vs the raw
-  buffer).
+- **History**: **`history_prompt`** — one full-round template the model sees verbatim (header +
+  `{feed}` + close + response + result, plus whatever else that experiment wants — a rationale
+  block, a takeaway, …). Each experiment writes its own, so there is no flag-based variant
+  selection in code; the exact prompt a run used is recoverable from its stored config via
+  `replay`. `{feed}` is the rendered cheap-talk of the round — the same placeholder the live
+  `talk`/`decide` prompts use (its whole line is dropped when the round had none), filled via
+  `msg_self`/`msg_partner`; other placeholders: `{round} {partner} {reason} {my_rationale}
+  {my_number} {my_number_line} {partner_number} {payoff} {partner_payoff} {total}
+  {my_reflection}`. `{my_number_line}` is the agent's own number rendered **through `msg_self`**
+  (so the tag stays in sync with the cheap-talk lines); `{my_number}` is the raw integer (for an
+  inline rationale block). `reason_limit` / `reason_agreed` supply the `{reason}` phrase.
+  `DEFAULT_HISTORY_PROMPT` (`src/core/config.py`) is the canonical wording.
+- **Notes rendering**: `notes_view` (header + the notes line) and `notes_buffer` (the full buffer
+  section, `{buffer}` = the raw rounds since consolidation; appended after the view only when
+  something was played since the last consolidation). Both keys go together (validated at load).
+  In `notes_view`, `{notes_line}` is the saved notes rendered **through `msg_self`**; raw
+  `{notes}` is also available for custom layouts. `notes_prompt` stays separate — it is the live
+  NOTE-phase instruction, appended after the rendered memory in the same user message.
 - Parse-retry corrections (appended when a reply is unparseable): `talk_correction`,
-  `decide_correction` / `decide_correction_bare`, `predict_correction` /
-  `predict_correction_bare`, `reflect_correction`, `note_correction`. DECIDE/PREDICT pick the
-  `_bare` vs full correction by the **same** `rationale` flag as the prompt.
+  `decide_correction`, `predict_correction`, `reflect_correction`, `note_correction` (one per
+  phase; write the DECIDE/PREDICT correction to match the prompt's JSON shape).
 
 ## The `population` block (`PopulationCfg`)
 

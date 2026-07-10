@@ -1,5 +1,5 @@
-# Research condition: PLAIN / baseline (no rationale, no memory notes; number-only decide_prompt).
-#   uv run python research.py   (point CONFIG/DB at this file — e.g. DB = qwen3.db)
+# Research condition: + RATIONALE (agents reason before choosing; decide_prompt asks {"rationale","number"}).
+#   uv run python research.py   (point CONFIG/DB at this file — e.g. DB = qwen3_rationale.db)
 
 # ── Episode (EpisodeCfg) ──────────────────────────────────
 seed: random
@@ -11,14 +11,14 @@ idle_payoff: 1
 
 # ── Population (PopulationCfg) ────────────────────────────
 population:
-  system_default: &system_default |-
+  system_rationale: &system_rationale |-
     You are AI agent {id}.
 
     You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
 
     How each round works:
     - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
-    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9. Before choosing, you reason it out to yourself first.
 
     Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
     - Equal numbers: you each score {R}.
@@ -29,14 +29,14 @@ population:
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
     Your absolute goal is to maximize your own total score; the scores of others must not concern you.
-  system_defect: &system_defect |-
+  system_rationale_defect: &system_rationale_defect |-
     You are AI agent {id}.
 
     You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
 
     How each round works:
     - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
-    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9. Before choosing, you reason it out to yourself first.
 
     Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
     - Equal numbers: you each score {R}.
@@ -48,8 +48,8 @@ population:
 
     You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is one higher than you expect from your co-player.
   agents:
-    - {count: 8, play_strategy: 'direct', system_prompt: *system_default}
-    - {count: 2, play_strategy: 'direct', system_prompt: *system_defect}
+    - {count: 8, play_strategy: 'direct', system_prompt: *system_rationale}
+    - {count: 2, play_strategy: 'direct', system_prompt: *system_rationale_defect}
   provider:
     base_url: https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY
@@ -57,7 +57,7 @@ population:
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
-    # reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
+    reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
                           # non-reasoning models ignore the field. reasoning_effort (high/max) — not set.
   kind: roster
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
@@ -67,7 +67,7 @@ game:
   max_talk_turns: 10
   memory_notes_every: 0
   payoffs: {R: 3, T: 5, P: 1, S: 0}
-  rationale: false
+  rationale: true            # read/store the rationale; decide_prompt asks for {"rationale","number"}
   reflection: false
   talk_stop_rule: both_ready_committed
 
@@ -92,15 +92,16 @@ game:
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
+    <game>The chat has been closed as {reason}. Give your rationale first, then choose the number. Please write your response in the following JSON format: {"rationale": "<your rationale>", "number": <0-9>}</game>
   decide_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"number": <0-9>}
+    Respond with ONLY valid JSON, nothing else: {"rationale": "<your rationale>", "number": <0-9>}
 
   history_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Choose the number.</game>
-    {my_number_line}
+    <game>The chat has been closed as {reason}. Give your rationale first, then choose the number.</game>
+    <you>rationale: {my_rationale}
+    number: {my_number}</you>
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>

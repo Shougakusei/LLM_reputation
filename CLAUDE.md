@@ -133,7 +133,8 @@ validation, extend `_validate` in `src/core/config.py`. Table: `docs/development
   `Phase.game_cfg`). A single user message = memory diary + phase context (+ correction
   appended on JSON parse retry, then `ActParseError` — the pairing is aborted).
 - All phase prompts are static templates; only named placeholders are substituted.
-  `PREDICT` mirrors `DECIDE`; the `rationale` flag picks the full vs `_bare` template.
+  `PREDICT` mirrors `DECIDE`; there is one `decide_prompt` (no `_bare`) — the `rationale` flag
+  only gates reading/storing the rationale (default off), not which template is sent.
 - JSON extraction is lenient (`src/core/jsonextract.py`); validators per phase.
 - DECIDE/PREDICT/REFLECT inputs are traced at DEBUG via the `src.core.agent` logger
   (`_render_trace`); keep the trace in sync if you change prompt assembly.

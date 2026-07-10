@@ -45,7 +45,7 @@ population:
 
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
-    You have a specific role in this game which is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number which is one higher than your co-player.
+    You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is one higher than you expect from your co-player.
   # play_strategy ("direct"|"prediction"), prediction_mapping ("match"|"one_above")
   agents:
     - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
@@ -55,7 +55,7 @@ population:
     # model: llama3.1:8b
     base_url: https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY             # name of the env var with the key (value in .env)
-    model: meta-llama/Meta-Llama-3-8B-Instruct-Lite
+    model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
@@ -89,7 +89,7 @@ game:
   max_talk_turns: 6
   memory_notes_every: 0                # 0 = off (idle rounds don't count)
   payoffs: {R: 3, T: 5, P: 1, S: 0}    # invariants: T > R > P > S and 2R > T + S
-  rationale: false                     # reason before the number? true -> *_prompt, false -> *_prompt_bare
+  rationale: false                     # reason before the number? gates whether the returned rationale is read/stored
   reflection: false                    # post-game reflection: an extra LLM call after the outcome
   talk_stop_rule: both_ready_committed # stop when both set finish; variants differ on two axes:
                                        # both_ready_latch:     you set finish, go silent, wait for the other (finish is sticky).
@@ -101,11 +101,11 @@ game:
   # NB: the game rules now live in the agent's system_prompt (see &system_default above), not here.
   #   talk:            {partner} {round} {feed}
   #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {reason}; rationale picks decide_prompt|decide_prompt_bare
-  #   predict:         {partner} {round} {feed} {reason}; rationale picks predict_prompt|predict_prompt_bare
+  #   decide:          {partner} {round} {feed} {reason}; one decide_prompt (rationale gates reading the rationale)
+  #   predict:         {partner} {round} {feed} {reason}; one predict_prompt (rationale gates reading the rationale)
   #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
   #   notes:           {round} {score} (memory arrives as history; used when memory_notes_every>0)
-  #   notes_block:      {notes} (<you> wrapper for saved notes; notes_header/buffer_header are <game>)
+  #   notes_view:       {notes};  notes_buffer: {buffer} (collapsed: saved-notes view + full buffer section)
   # The whole input is one game transcript: history of past rounds (tags <game>/<you>/<name>, see
   # history_*/msg_*/reason_* below) + the current round. {feed} = the current round's messages
   # with the same tags. The agent reads its own score from past rounds' result lines, so it is
@@ -120,15 +120,9 @@ game:
   talk_open_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open. You speak first this round — send a short message to your co-player. Please, write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # rationale=false -> the *_bare templates are active (number only). rationale: true -> uses
-  # decide_prompt/predict_prompt (reason before the number). Both variants are given explicitly here,
-  # so the config is self-contained (no falling back to code defaults). {reason} = how the chat closed.
+  # One decide_prompt (number only — this config runs rationale=false; the flag just gates whether a
+  # returned rationale is read). Self-contained (no fallback to code defaults). {reason} = how the chat closed.
   decide_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been open.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Choose the number. Reason first, then commit to a number. Please, write your reasoning and number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
-  decide_prompt_bare: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
@@ -138,44 +132,27 @@ game:
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Reason first, then commit to a number. Please, write your reasoning and the predicted number in the following JSON format: {"rationale": "<short reason>", "number": <0-9>}</game>
-  predict_prompt_bare: |-
+    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
+  # ── Parse-retry corrections (appended to the user message when a phase reply fails to parse) ──
+  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
+  decide_correction: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
+  predict_correction: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
+  reflect_correction: 'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
+  note_correction: 'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
+  # ── History of past rounds: ONE full-round template (the model sees it verbatim). {feed} is the
+  # rendered cheap-talk of the round; msg_self/msg_partner render each line, reason_* fill {reason}. ──
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+  reason_limit: the messages number limit has been reached
+  reason_agreed: both players agreed to stop
+  history_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been open.</game>
     {feed}
-    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please, write the predicted number in the following JSON format: {"number": <0-9>}</game>
-  # ── Parse-retry corrections ─────────────────────────────────────────────
-  # Appended to the user message when a phase reply fails to parse (max 2 retries). DECIDE/PREDICT
-  # pick bare/rationale by the same rationale flag as the phase prompt: with rationale=false the
-  # *_correction_bare ({"number"} only) are active, with true the *_correction (with rationale).
-  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
-  decide_correction: 'Respond with ONLY valid JSON, nothing else: {"rationale": "<short reason>", "number": <0-9>}'
-  decide_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
-  predict_correction: 'Respond with ONLY valid JSON, nothing else: {"rationale": "<short reason>", "number": <0-9>}'
-  predict_correction_bare: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
-  reflect_correction: 'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
-  note_correction: 'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
-  # ── History of past rounds: one round is rendered as a game transcript ──
-  history_round_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been open.</game>
-  msg_self: <you>{text}</you>
-  msg_partner: <{partner}>{text}</{partner}>
-  history_close_prompt: <game>The chat has been closed as {reason}. Choose the number.</game>
-  reason_limit: the messages number limit has been reached
-  reason_agreed: both players agreed to stop
-  history_result_prompt: |-
+    <game>The chat has been closed as {reason}. Choose the number.</game>
+    {my_number_line}
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
-  # Private traces in history (the agent's own scratchpad) — each behind its own flag; a line is
-  # rendered only if the flag is on AND its field is non-empty (prediction — prediction agents
-  # only, reasoning — when rationale=true, takeaway — when reflection=true).
-  show_predicted: false
-  show_rationale: false
-  show_reflection: false
-  history_predicted_prompt: "<you>(I predicted {partner} would pick {my_predicted})</you>"
-  history_rationale_prompt: "<you>(my reasoning: {my_rationale})</you>"
-  history_reflection_prompt: "<you>(my takeaway: {my_reflection})</you>"
   # Used only when reflection=true:
   reflect_prompt: |-
     Current round: [Round {round} with {partner}: · score {score}]
@@ -190,9 +167,11 @@ game:
   # <game> like the other instructions.
   notes_prompt: |-
     <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please, write your notes in the following JSON format: {"notes": "<your notes>"}</game>
-  # Memory rendering when notes are on: <game> section headers frame the parts; the saved notes
-  # themselves go in <you> (the agent's own private memo). The buffer header's <game> meets the
-  # first buffered round's <game> and the seam collapses, so the header opens that round's block.
-  notes_block_prompt: <you>{notes}</you>
-  notes_header: <game>Your notes from earlier rounds:</game>
-  buffer_header: <game>Your rounds since those notes:</game>
+  # Collapsed notes: notes_view = header + <you>-wrapped notes; notes_buffer = the full buffer
+  # section (header + {buffer} = the raw rounds since consolidation).
+  notes_view: |-
+    <game>Your notes from earlier rounds:</game>
+    {notes_line}
+  notes_buffer: |-
+    <game>Your rounds since those notes:</game>
+    {buffer}

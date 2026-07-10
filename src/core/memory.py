@@ -52,13 +52,18 @@ class Memory:
                 return []
             body = "\n".join(_render_entry(e, cfg) for e in entries)
             return [Message("user", body)]
-        # With notes: under a header label, the compressed notes (wrapped in <game>), then under
-        # its own label the raw buffer of rounds played since the last consolidation (instead
-        # of the full history) — as a normal game transcript. The window only limits the buffer.
-        parts = [f"{cfg.notes_header}\n" + cfg.notes_block_prompt.replace("{notes}", self.notes)]
+        # With notes: notes_view (the consolidated notes), then — only when rounds were played
+        # since the last consolidation — the notes_buffer section with those rounds rendered raw
+        # (instead of the full history). The window only limits the buffer.
+        # {notes_line} — the saved notes rendered THROUGH msg_self (the tag stays in sync with the
+        # agent's own lines); {notes} — the raw text, for custom layouts.
         buffer = _window(self.entries[self.noted_upto:], window)
+        parts = [cfg.notes_view
+                 .replace("{notes_line}", cfg.msg_self.replace("{text}", self.notes))
+                 .replace("{notes}", self.notes)]
         if buffer:
-            parts.append(f"{cfg.buffer_header}\n" + "\n".join(_render_entry(e, cfg) for e in buffer))
+            rendered = "\n".join(_render_entry(e, cfg) for e in buffer)
+            parts.append(cfg.notes_buffer.replace("{buffer}", rendered))
         return [Message("user", "\n\n".join(parts))]
 
 
@@ -94,51 +99,30 @@ def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]
 
 
 def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
-    # One past round as a transcript chunk: chat opening, turns, close, the agent's response
-    # (with rationale enabled — rationale and number as one <you> block, otherwise just the
-    # number), the revealing result line. The partner is named, own turns are <you>; who
-    # opened the round is visible from the first speaker in the transcript.
-    lines = [
-        cfg.history_round_prompt
-        .replace("{round}", str(e.round))
-        .replace("{partner}", e.partner_id)
-    ]
-    if e.transcript:
-        lines.append(render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner))
+    # One past round = one full-round template (cfg.history_prompt) filled by placeholder. {feed}
+    # is the rendered cheap-talk of the round (same as the live prompts' {feed}; its whole line is
+    # dropped when the round had none); the rest are field substitutions. What the response/takeaway
+    # look like is baked into the experiment's own history_prompt, so the code does not branch here.
+    feed = render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner) if e.transcript else ""
+    body = (cfg.history_prompt.replace("{feed}", feed) if feed
+            else cfg.history_prompt.replace("{feed}\n", "").replace("{feed}", ""))
     reason = cfg.reason_agreed if _both_agreed(e) else cfg.reason_limit
-    # The close line mirrors the chosen decide_prompt: the rationale variant asks for a rationale
-    # before the number, bare — number only (chosen by cfg.rationale, same as in decide).
-    close_tmpl = cfg.history_close_prompt_rationale if cfg.rationale else cfg.history_close_prompt
-    lines.append(close_tmpl.replace("{reason}", reason))
-    # The agent's response: with rationale enabled — rationale and number as one <you> block
-    # (same as in the JSON response, rationale before the number); otherwise just the secret number.
-    if cfg.show_rationale and e.my_rationale:
-        lines.append(cfg.history_rationale_prompt
-                     .replace("{my_rationale}", e.my_rationale)
-                     .replace("{my_number}", str(e.my_number)))
-    else:
-        lines.append(cfg.msg_self.replace("{text}", str(e.my_number)))
-    lines.append(
-        cfg.history_result_prompt
-        .replace("{round}", str(e.round))
-        .replace("{partner}", e.partner_id)
+    return (
+        body
+        # {my_number_line} — the agent's own number rendered THROUGH msg_self (so the tag stays in
+        # sync with the cheap-talk lines). Must run before {my_number} ({my_number} is its substring).
+        .replace("{my_number_line}", cfg.msg_self.replace("{text}", str(e.my_number)))
+        .replace("{reason}", reason)
+        .replace("{my_rationale}", e.my_rationale or "")
         .replace("{my_number}", str(e.my_number))
         .replace("{partner_number}", str(e.partner_number))
-        .replace("{payoff}", f"{e.payoff:g}")
         .replace("{partner_payoff}", f"{e.partner_payoff:g}")
+        .replace("{partner}", e.partner_id)
+        .replace("{payoff}", f"{e.payoff:g}")
+        .replace("{round}", str(e.round))
         .replace("{total}", f"{e.score + e.payoff:g}")
+        .replace("{my_reflection}", e.my_reflection or "")
     )
-    # Private traces after the result (prediction/reflection) — each under its own flag; the line
-    # is added only if the flag is on AND its field is non-empty. Templates live in the config.
-    # (rationale is not here: it's in the response block before the number, see history_rationale_prompt above.)
-    if cfg.show_predicted and e.my_predicted is not None:
-        lines.append(cfg.history_predicted_prompt
-                     .replace("{partner}", e.partner_id)
-                     .replace("{my_predicted}", str(e.my_predicted)))
-    # rationale is no longer in the tail — it's in the response block above (history_rationale_prompt).
-    if cfg.show_reflection and e.my_reflection:
-        lines.append(cfg.history_reflection_prompt.replace("{my_reflection}", e.my_reflection))
-    return "\n".join(lines)
 
 
 def both_agreed(transcript: list[dict], a_id: str, b_id: str) -> bool:

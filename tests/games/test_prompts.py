@@ -26,27 +26,21 @@ def test_notes_context_fills_round_and_score():
     assert notes_context(cfg, 4, 12.0) == "Consolidate at round 4, score 12."
 
 
-def test_decide_template_puts_rationale_before_number():
-    ctx = decide_context(GameCfg(), "A2", 1, "feed")
-    assert '"rationale"' in ctx and '"number"' in ctx
-    assert ctx.index('"rationale"') < ctx.index('"number"')
+def test_default_decide_template_asks_only_number():
+    # rationale is off by default, so the default decide/predict prompt is number-only.
+    assert '"rationale"' not in decide_context(GameCfg(), "A2", 1, "feed")
+    assert '"rationale"' not in predict_context(GameCfg(), "A2", 1, "feed")
 
 
-def test_predict_template_puts_rationale_before_number():
-    ctx = predict_context(GameCfg(), "A2", 1, "feed")
-    assert ctx.index('"rationale"') < ctx.index('"number"')
-
-
-def test_rationale_flag_selects_whole_template():
-    # the flag selects the WHOLE static template (not a concatenation): rationale|bare
-    cfg = GameCfg(decide_prompt="THINK {feed}", decide_prompt_bare="BARE {feed}",
-                  predict_prompt="PTHINK {feed}", predict_prompt_bare="PBARE {feed}")
-    assert decide_context(cfg, "A2", 1, "f") == "THINK f"                       # rationale=True (default)
-    assert predict_context(cfg, "A2", 1, "f") == "PTHINK f"
+def test_decide_context_uses_single_prompt_regardless_of_flag():
+    # There is one decide/predict template now; the rationale flag does NOT select it.
     from dataclasses import replace
-    off = replace(cfg, rationale=False)
-    assert decide_context(off, "A2", 1, "f") == "BARE f"
-    assert predict_context(off, "A2", 1, "f") == "PBARE f"
+    cfg = GameCfg(decide_prompt="D {feed}", predict_prompt="P {feed}")
+    assert decide_context(cfg, "A2", 1, "f") == "D f"
+    assert predict_context(cfg, "A2", 1, "f") == "P f"
+    on = replace(cfg, rationale=True)
+    assert decide_context(on, "A2", 1, "f") == "D f"      # same template whether rationale is on or off
+    assert predict_context(on, "A2", 1, "f") == "P f"
 
 
 def test_predict_mirrors_decide_and_threads_reason():
@@ -63,7 +57,7 @@ def test_bare_template_asks_only_number():
 
 
 def test_explicit_decide_template_used_verbatim():
-    cfg = GameCfg(decide_prompt="Custom {partner} r{round}: {feed}")   # rationale=True -> decide_prompt
+    cfg = GameCfg(decide_prompt="Custom {partner} r{round}: {feed}")   # the single decide_prompt, used verbatim
     assert decide_context(cfg, "A2", 1, "feed") == "Custom A2 r1: feed"
 
 

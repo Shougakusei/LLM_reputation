@@ -71,11 +71,15 @@ def test_render_shows_both_payoffs_distinctly():
 
 
 def test_reflection_rendered_after_outcome():
+    # the takeaway line renders only when the experiment's history_prompt asks for it
+    from src.core.config import DEFAULT_HISTORY_PROMPT, GameCfg
+
+    cfg = GameCfg(history_prompt=DEFAULT_HISTORY_PROMPT + "\n<you>(my takeaway: {my_reflection})</you>")
     m = Memory()
     e = _entry(round=2, partner="A3")
     e.my_reflection = "A3 kept the agreement; cooperating with them pays off"
     m.add(e)
-    text = m.render(None)[0].content
+    text = m.render(None, cfg)[0].content
     assert "A3 kept the agreement" in text
     # reflection comes after the revealing result line
     assert text.index("Your total score") < text.index("A3 kept the agreement")
@@ -145,53 +149,148 @@ def test_render_with_notes_only_when_buffer_empty():
     assert "Round 1" not in msgs[0].content
 
 
-def _trace_entry():
-    from src.core.memory import MemoryEntry
+def test_history_prompt_controls_what_is_shown():
+    # what the agent sees of its own past (rationale block? takeaway?) is decided entirely by
+    # the experiment's history_prompt — the default shows only the number line and the result.
+    from src.core.config import GameCfg
+    from src.core.memory import Memory, MemoryEntry
+
     e = MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[], my_number=5,
                     my_rationale="risky", partner_number=5, outcome="CC", payoff=3.0,
                     partner_payoff=3.0, my_predicted=4)
     e.my_reflection = "trust holds"
-    return e
-
-
-def test_private_traces_rendered_when_flags_on():
-    # all three flags default to True: traces are printed per their templates
-    from src.core.config import GameCfg
-    from src.core.memory import Memory
 
     m = Memory()
-    m.add(_trace_entry())
-    rendered = m.render(None, GameCfg())[0].content
-    assert "I predicted A2 would pick 4" in rendered   # {partner}/{my_predicted} substituted
-    # rationale and number — one <you> block (as in the JSON reply), rationale before the number
-    assert "<you>rationale: risky\nnumber: 5</you>" in rendered
-    assert "my takeaway: trust holds" in rendered
-    # the answer block comes BEFORE the revealing result: reasoned -> chose -> learned the outcome
-    assert rendered.index("rationale: risky") < rendered.index("The choice has been accepted")
+    m.add(e)
+    default = m.render(None, GameCfg())[0].content
+    assert "<you>5</you>" in default                     # the number line
+    assert "risky" not in default and "trust holds" not in default and "predicted" not in default
+
+    rich = GameCfg(history_prompt=(
+        "<game>Round {round} with {partner}</game>\n"
+        "<you>rationale: {my_rationale}\nnumber: {my_number}</you>\n"
+        "<game>{partner} chose {partner_number}.</game>\n"
+        "<you>(my takeaway: {my_reflection})</you>"
+    ))
+    m2 = Memory()
+    m2.add(e)
+    text = m2.render(None, rich)[0].content
+    assert "rationale: risky" in text and "(my takeaway: trust holds)" in text
 
 
-def test_each_private_trace_has_its_own_flag():
-    # three DIFFERENT flags: turn off one at a time — the rest remain
+# ── Collapsed rendering (opt-in via a single history_prompt / notes_view) ──
+
+def _collapsed_cfg(history_prompt=None, **over):
+    from src.core.config import (
+        DEFAULT_HISTORY_PROMPT,
+        DEFAULT_NOTES_BUFFER,
+        DEFAULT_NOTES_VIEW,
+        GameCfg,
+    )
+    base = dict(
+        history_prompt=history_prompt or DEFAULT_HISTORY_PROMPT,
+        notes_view=DEFAULT_NOTES_VIEW,
+        notes_buffer=DEFAULT_NOTES_BUFFER,
+    )
+    base.update(over)
+    return GameCfg(**base)
+
+
+def test_collapsed_history_prompt_renders_turns_and_result():
+    cfg = _collapsed_cfg()
+    m = Memory()
+    m.add(_entry(round=3, partner="A5", my=4, score=12.0))
+    text = m.render(None, cfg)[0].content
+    assert "opponent A5" in text                                   # DEFAULT_HISTORY_PROMPT header
+    assert "<you>let us both take 4</you>" in text                 # {feed} rendered
+    assert "<A5>ok, 4</A5>" in text
+    assert "<you>4</you>" in text                                  # the number line
+    assert "The choice has been accepted. A5 chose 4" in text
+    assert "Your total score after round 3 is 15 points" in text   # 12 + 3
+
+
+def test_collapsed_history_prompt_drops_turns_line_when_no_transcript():
+    cfg = _collapsed_cfg()
+    e = MemoryEntry(round=1, my_id="A1", partner_id="A2", transcript=[], my_number=5,
+                    my_rationale="", partner_number=5, outcome="CC", payoff=3.0, partner_payoff=3.0)
+    m = Memory()
+    m.add(e)
+    text = m.render(None, cfg)[0].content
+    assert "{feed}" not in text
+    # the header line is immediately followed by the close line — no empty line where turns were
+    assert "The chat has been opened.</game>\n<game>The chat has been closed" in text
+
+
+def test_collapsed_number_line_renders_through_msg_self():
+    # {my_number_line} uses msg_self, so a custom self-tag applies to the number line too.
+    cfg = _collapsed_cfg(msg_self="<self>{text}</self>")
+    m = Memory()
+    m.add(_entry(my=4))
+    text = m.render(None, cfg)[0].content
+    assert "<self>4</self>" in text                       # the number line via the custom msg_self
+    assert "<self>let us both take 4</self>" in text      # cheap-talk lines too
+    assert "<you>" not in text                             # nothing falls back to the hardcoded tag
+
+
+def test_collapsed_notes_line_renders_through_msg_self():
+    # {notes_line} uses msg_self too — the saved notes carry the same self-tag as the agent's lines.
+    cfg = _collapsed_cfg(msg_self="<self>{text}</self>")
+    m = Memory()
+    m.add(_entry(round=1))
+    m.set_notes("keep trusting A2")
+    text = m.render(None, cfg)[0].content
+    assert "<self>keep trusting A2</self>" in text
+    assert "<you>" not in text
+
+
+def test_collapsed_custom_history_prompt_is_used_verbatim():
+    # An experiment supplies its own history_prompt (here: rationale block); the code fills
+    # placeholders and does not branch on flags.
+    tmpl = (
+        "<game>Round {round} with {partner}:\nThe chat has been opened.</game>\n{feed}\n"
+        "<game>The chat has been closed as {reason}. Give your rationale first, then choose the number.</game>\n"
+        "<you>rationale: {my_rationale}\nnumber: {my_number}</you>\n"
+        "<game>The choice has been accepted. {partner} chose {partner_number}. "
+        "Payoffs: you = {payoff}, {partner} = {partner_payoff}.\n"
+        "Your total score after round {round} is {total} points.</game>"
+    )
+    cfg = _collapsed_cfg(history_prompt=tmpl)
+    m = Memory()
+    m.add(_entry(partner="A5"))
+    text = m.render(None, cfg)[0].content
+    assert "<you>rationale: agreed on 4\nnumber: 4</you>" in text
+    assert "Give your rationale first" in text
+
+
+def test_collapsed_notes_view_and_full_buffer():
+    cfg = _collapsed_cfg()
+    m = Memory()
+    m.add(_entry(round=1))
+    m.add(_entry(round=2))
+    m.set_notes("R1-2 fine")
+    m.add(_entry(round=3, partner="A7"))                # played after consolidation -> buffer
+    text = m.render(None, cfg)[0].content
+    assert "<game>Your notes from earlier rounds:</game>\n<you>R1-2 fine</you>" in text
+    assert "<game>Your rounds since those notes:</game>" in text
+    assert "Round 3" in text and "A7" in text
+    assert "Round 1" not in text and "Round 2" not in text
+
+
+def test_collapsed_notes_view_only_when_buffer_empty():
+    cfg = _collapsed_cfg()
+    m = Memory()
+    m.add(_entry(round=1))
+    m.set_notes("note text")
+    content = m.render(None, cfg)[0].content
+    # nothing buffered -> the buffer section is not appended
+    assert content == "<game>Your notes from earlier rounds:</game>\n<you>note text</you>"
+
+
+def test_legacy_path_still_used_when_history_prompt_unset():
+    # Default GameCfg leaves history_prompt None -> the piecewise legacy path is rendered.
     from src.core.config import GameCfg
-    from src.core.memory import Memory
 
-    def render(**flags):
-        m = Memory()
-        m.add(_trace_entry())
-        return m.render(None, GameCfg(**flags))[0].content
-
-    no_pred = render(show_predicted=False)
-    assert "predict" not in no_pred.lower() and "rationale: risky" in no_pred and "my takeaway: trust holds" in no_pred
-
-    no_rat = render(show_rationale=False)
-    # rationale disabled -> no answer block, the number is rendered as a separate msg_self line
-    assert "rationale:" not in no_rat and "<you>5</you>" in no_rat
-    assert "I predicted A2 would pick 4" in no_rat and "my takeaway: trust holds" in no_rat
-
-    no_ref = render(show_reflection=False)
-    assert "my takeaway" not in no_ref and "I predicted A2 would pick 4" in no_ref and "rationale: risky" in no_ref
-
-    all_off = render(show_predicted=False, show_rationale=False, show_reflection=False)
-    # the close line when rationale=True legitimately contains the word "rationale" — we check
-    # specifically for the answer-block marker "rationale:" (with a colon), not the bare word.
-    assert all(s not in all_off.lower() for s in ("predict", "rationale:", "takeaway"))
+    m = Memory()
+    m.add(_entry(round=3, partner="A5"))
+    text = m.render(None, GameCfg())[0].content
+    assert "The choice has been accepted. A5 chose 4" in text

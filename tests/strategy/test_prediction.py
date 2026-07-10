@@ -15,7 +15,7 @@ def _agent(replies):
 
 async def test_prediction_maps_predicted_to_final_choice():
     agent = _agent(['{"number": 4, "rationale": "mid"}'])
-    d = await PredictionStrategy(get_mapping("one_above"), GameCfg()).decide(agent, "A2", 1, "")
+    d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=True)).decide(agent, "A2", 1, "")
     assert d.predicted == 4          # predict-step output
     assert d.number == 5             # one_above mapping applied (4 -> 5)
     assert d.predicted_rationale == "mid"

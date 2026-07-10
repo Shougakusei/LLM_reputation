@@ -48,7 +48,7 @@ def _talk(msg, ready):
 # ---- Slice 2: decision only (talk off) ----
 
 async def test_decision_only_cc():
-    g = ReputationPD(GameCfg(max_talk_turns=0))
+    g = ReputationPD(GameCfg(max_talk_turns=0, rationale=True))
     a = _agent("A1", [_decide(4, "ra")])
     b = _agent("A2", [_decide(4, "rb")])
     rec = await g.play_pairing(a, b, round=1)
@@ -74,7 +74,7 @@ async def test_decision_dc_mirrored_outcome():
 
 
 async def test_rationale_privacy():
-    g = ReputationPD(GameCfg(max_talk_turns=0))
+    g = ReputationPD(GameCfg(max_talk_turns=0, rationale=True))
     a = _agent("A1", [_decide(1, "secret-a")])
     b = _agent("A2", [_decide(7, "secret-b")])
     rec = await g.play_pairing(a, b, 1)

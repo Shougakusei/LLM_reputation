@@ -62,19 +62,11 @@ async def test_decide_bare_correction_omits_rationale():
     assert "rationale" not in correction          # bare — without rationale
 
 
-async def test_decide_rationale_correction_asks_for_rationale():
-    p = ScriptedProvider(["nope", '{"number": 3, "rationale": "r"}'])
-    phase = Phase(PhaseKind.DECIDE, "Pick a number.", game_cfg=GameCfg(rationale=True))
-    await _agent(p).act(phase)
-    correction = p.calls[1][1][-1].content
-    assert "rationale" in correction and '"number"' in correction
-
-
 async def test_decide_correction_text_comes_from_config():
     # The correction text comes from GameCfg, not from a hardcoded string.
     p = ScriptedProvider(["nope", '{"number": 1}'])
     phase = Phase(PhaseKind.DECIDE, "Pick a number.",
-                  game_cfg=GameCfg(rationale=False, decide_correction_bare="JUST_NUMBER_PLEASE"))
+                  game_cfg=GameCfg(decide_correction="JUST_NUMBER_PLEASE"))
     await _agent(p).act(phase)
     assert "JUST_NUMBER_PLEASE" in p.calls[1][1][-1].content
 

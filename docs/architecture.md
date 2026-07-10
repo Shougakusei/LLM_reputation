@@ -122,9 +122,9 @@ failure it raises `ActParseError` (no substitution/fallback).
 Five `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`, `NOTE`. **All phase prompts are
 static templates** — only named placeholders are substituted, never assembled from text
 chunks. `PREDICT` mirrors `DECIDE` byte-for-byte except the directive. DECIDE/PREDICT each
-come as two complete templates — a rationale variant (reason first, then
-`{"rationale","number"}`) and a `_bare` variant (`{"number"}` only); the `game.rationale`
-flag picks one whole template and gates whether the returned rationale is stored. JSON
+use one `decide_prompt` template each (no `_bare` variant); the `game.rationale` flag does not
+pick a template — it only gates whether the returned rationale is read/stored, so each experiment
+writes its single prompt to match (`{"rationale","number"}` when on, `{"number"}` when off). JSON
 extraction is lenient — raw, fenced, and balanced-brace candidates are all tried
 (`src/core/jsonextract.py`).
 
@@ -134,15 +134,17 @@ and the payoff placeholders `{R}/{T}/{P}/{S}/{max_talk_turns}` are substituted.
 ### Memory rendering
 
 The whole LLM input is one continuous **game transcript**. `Memory.render`
-(`src/core/memory.py`) replays each past round using the tags the system prompt declares
-— `<game>` / `<you>` / `<opponent name>` — and the current round's live feed uses the same
-tags, so history and live read identically. Line templates live in `GameCfg`
-(`history_*`, `msg_*`, `reason_*`) and ride into `render` via `Phase.game_cfg` (which also
-carries the payoffs). After gluing history to the live prompt, `Agent.act` collapses
-adjacent `<game>` blocks (`_merge_game_blocks`) so the input is one running transcript
-rather than a series of closed/reopened blocks. With memory notes on, saved notes are
-rendered as the agent's own `<you>` memo, framed by `<game>` section headers against the
-raw buffer of un-consolidated rounds.
+(`src/core/memory.py`) replays each past round with **one full-round template**,
+`GameCfg.history_prompt` — header, the round's cheap-talk at `{feed}` (rendered with
+`msg_self`/`msg_partner`, the same tags the live prompts use), the close line, the agent's
+response, and the result. What the agent sees of its own past (a rationale block, a
+takeaway, …) is decided entirely by the experiment's `history_prompt` — the code does not
+branch on flags. Templates ride into `render` via `Phase.game_cfg` (which also carries the
+payoffs). After gluing history to the live prompt, `Agent.act` collapses adjacent `<game>`
+blocks (`_merge_game_blocks`) so the input is one running transcript rather than a series
+of closed/reopened blocks. With memory notes on, `notes_view` renders the saved notes
+(via `msg_self`, as the agent's own memo) and `notes_buffer` appends the raw rounds played
+since the last consolidation.
 
 ### LLM input trace
 

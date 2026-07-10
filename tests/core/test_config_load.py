@@ -79,7 +79,7 @@ def test_reflection_and_rationale_defaults(tmp_path):
     ))
     cfg = load_episode(str(f))
     assert cfg.game.reflection is False
-    assert cfg.game.rationale is True            # thinking before the number — yes by default
+    assert cfg.game.rationale is False           # rationale off by default
 
 
 def test_rationale_loaded_from_game_block(tmp_path):
@@ -100,6 +100,37 @@ def test_rationale_loaded_from_game_block(tmp_path):
         """
     ))
     assert load_episode(str(f)).game.rationale is False
+
+
+def _episode_yaml(game_block: str) -> str:
+    return textwrap.dedent(
+        f"""
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game: {game_block}
+        population:
+          kind: roster
+          provider: {{base_url: "http://x/v1", model: "m"}}
+          first_name_pool: [Kurisu, Mayuri]
+          last_name_pool: [Makise, Shiina]
+          agents:
+            - {{count: 1}}
+        """
+    )
+
+
+def test_collapsed_history_prompt_loaded(tmp_path):
+    f = tmp_path / "hist.yaml"
+    f.write_text(_episode_yaml('{history_prompt: "one full round {turns}"}'))
+    assert load_episode(str(f)).game.history_prompt == "one full round {turns}"
+
+
+def test_collapsed_notes_view_requires_buffer(tmp_path):
+    f = tmp_path / "notes.yaml"
+    f.write_text(_episode_yaml('{notes_view: "v"}'))
+    with pytest.raises(ValueError, match="notes_buffer"):
+        load_episode(str(f))
 
 
 def test_reflection_loaded_from_game_block(example):
@@ -150,7 +181,7 @@ def test_corrections_loaded_from_game_block(tmp_path):
         seed: 1
         rounds: 3
         matchmaker: random
-        game: {decide_correction_bare: "ONLY_NUMBER", talk_correction: "ONLY_MESSAGE"}
+        game: {decide_correction: "ONLY_NUMBER", talk_correction: "ONLY_MESSAGE"}
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
@@ -159,7 +190,7 @@ def test_corrections_loaded_from_game_block(tmp_path):
         """
     ))
     g = load_episode(str(f)).game
-    assert g.decide_correction_bare == "ONLY_NUMBER" and g.talk_correction == "ONLY_MESSAGE"
+    assert g.decide_correction == "ONLY_NUMBER" and g.talk_correction == "ONLY_MESSAGE"
 
 
 def test_population_provider_loaded(example):
@@ -267,9 +298,9 @@ def test_system_prompt_loaded_per_agent(tmp_path):
     assert cfg.population.agents[0].system_prompt == "You are {id}, a ruthless trader. {R}/{T}/{P}/{S}."
 
 
-def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
-    # old saved configs (persona/identity_prompt/game.rules) must still load,
-    # simply losing the removed fields — not fail
+def test_unknown_game_keys_are_rejected(tmp_path):
+    # legacy support is gone: a config with extinct game keys fails fast instead of
+    # silently loading (stored runs were migrated to the current structure).
     f = tmp_path / "legacy.yaml"
     f.write_text(textwrap.dedent(
         """
@@ -280,16 +311,12 @@ def test_legacy_persona_identity_rules_keys_are_ignored(tmp_path):
         population:
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
-          identity_prompt: "You are AI agent {id}."
           agents:
-            - {persona: "p", count: 1}
+            - {count: 1}
         """
     ))
-    from src.core.config import DEFAULT_SYSTEM_PROMPT
-    cfg = load_episode(str(f))
-    assert not hasattr(cfg.population, "identity_prompt")
-    assert not hasattr(cfg.game, "rules")
-    assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT   # persona discarded -> default
+    with pytest.raises(TypeError, match="rules"):
+        load_episode(str(f))
 
 
 def _seed_yaml(tmp_path, seed):

@@ -98,16 +98,10 @@ DEFAULT_TALK_OPEN_PROMPT = (
 # substituted) — no text is assembled from chunks. The `rationale` flag picks ONE whole
 # template: the rationale variant asks to reason first, the _BARE variant asks only for the
 # number. Both are complete and readable on their own.
+# One decide_prompt (no _bare variant): each experiment writes its own — number-only or with a
+# rationale block — and the `rationale` flag only gates whether the returned rationale is read/stored.
+# The default is number-only, matching the default rationale=False.
 DEFAULT_DECIDE_PROMPT = (
-    "<game>Round {round} · opponent {partner}\n"
-    "The chat has been opened.</game>\n"
-    "{feed}\n"
-    "<game>The chat has been closed as {reason}. Choose the number. "
-    "Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}</game>'
-)
-
-DEFAULT_DECIDE_PROMPT_BARE = (
     "<game>Round {round} · opponent {partner}\n"
     "The chat has been opened.</game>\n"
     "{feed}\n"
@@ -115,66 +109,41 @@ DEFAULT_DECIDE_PROMPT_BARE = (
     'Respond ONLY as JSON: {"number": <0-9>}</game>'
 )
 
-# ── History (past-round replay) templates ────────────────────────────────────
-# A finished round is replayed to the agent as a game transcript: an opening <game> line,
-# the cheap-talk messages (own = <you>, opponent = <name>), a close line, the agent's own
-# secret number as a <you> line, and a revealing <game> result line. src/core/memory.py
-# fills the placeholders; the live talk/decide prompts above reuse `msg_self`/`msg_partner`
-# to render the current round's feed, so past and present read identically.
-#   history_round_prompt:  {round} {partner}
-#   msg_self / msg_partner:  one cheap-talk line ({text}; partner-form also {partner})
-#   history_close_prompt:  {reason}  (same wording as the live decide close line)
-#   reason_limit / reason_agreed:  the {reason} phrase
-#   history_result_prompt: {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
-#                          ({total} = score after the round; own number shown above as a <you> line)
-DEFAULT_HISTORY_ROUND_PROMPT = (
-    "<game>Round {round} · opponent {partner}\nThe chat has been opened.</game>"
-)
+# ── History (past-round replay) ────────────────────────────────────────────────
+# A finished round is replayed to the agent as a game transcript by ONE full-round template,
+# history_prompt: an opening <game> line, the cheap-talk messages ({feed}, rendered with
+# msg_self/msg_partner — the same tags as the live prompts), a close line, the agent's own
+# response, and a revealing <game> result line. src/core/memory.py fills the placeholders:
+# {round} {partner} {feed} {reason} {my_rationale} {my_number} {my_number_line} {partner_number}
+# {payoff} {partner_payoff} {total} {my_reflection}. {my_number_line} is the agent's number
+# rendered through msg_self; {feed} is dropped with its line when the round had no cheap-talk.
+# DEFAULT_HISTORY_PROMPT is the canonical wording; each experiment writes its OWN full
+# history_prompt (with/without a rationale block or a takeaway, matching its flags) — the exact
+# prompt a run used is recoverable from the stored run config via replay.
 DEFAULT_MSG_SELF = "<you>{text}</you>"
 DEFAULT_MSG_PARTNER = "<{partner}>{text}</{partner}>"
-DEFAULT_HISTORY_CLOSE_PROMPT = "<game>The chat has been closed as {reason}. Choose the number.</game>"
-# The rationale variant of the history close line: mirrors the live decide_prompt (without the
-# JSON tail) when rationale is enabled. The bare/rationale choice in _render_entry follows the
-# cfg.rationale flag, same as in decide. Additive: history_close_prompt (no suffix) remains the
-# bare variant, the old key is left untouched.
-DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE = (
-    "<game>The chat has been closed as {reason}. Give your rationale first, then choose the number.</game>"
-)
 DEFAULT_REASON_LIMIT = "the messages number limit has been reached"
 DEFAULT_REASON_AGREED = "both players agreed to stop"
-DEFAULT_HISTORY_RESULT_PROMPT = (
+DEFAULT_HISTORY_PROMPT = (
+    "<game>Round {round} · opponent {partner}\n"
+    "The chat has been opened.</game>\n"
+    "{feed}\n"
+    "<game>The chat has been closed as {reason}. Choose the number.</game>\n"
+    "{my_number_line}\n"
     "<game>The choice has been accepted. {partner} chose {partner_number}. "
     "Payoffs: you = {payoff}, {partner} = {partner_payoff}.\n"
     "Your total score after round {round} is {total} points.</game>"
 )
-
-# Private trace lines in a past round's transcript — the agent's own scratch notes
-# (prediction / reasoning / takeaway). Tagged <you>; each is rendered only when its field is
-# present AND its own flag (show_predicted / show_rationale / show_reflection) is on.
-# Placeholders: {partner} {my_predicted} (predicted), {my_rationale} {my_number} (rationale),
-# {my_reflection}.
-DEFAULT_HISTORY_PREDICTED_PROMPT = "<you>(I predicted {partner} would pick {my_predicted})</you>"
-# history_rationale_prompt with rationale enabled (show_rationale) is the agent's response block:
-# a single <you> block repeating the JSON response {rationale, number} — rationale and number
-# together, as one message (rationale before the number, the same order as in decide_prompt), in
-# place of the choice, before the revealing result. If rationale is off, the number is rendered
-# as a separate msg_self line and this template is not used. Placeholders: {my_rationale} {my_number}.
-DEFAULT_HISTORY_RATIONALE_PROMPT = "<you>rationale: {my_rationale}\nnumber: {my_number}</you>"
-DEFAULT_HISTORY_REFLECTION_PROMPT = "<you>(my takeaway: {my_reflection})</you>"
+# Collapsed notes rendering: notes_view glues the notes header + the notes line ({notes_line} =
+# the saved notes rendered through msg_self; raw {notes} is also available); notes_buffer is the
+# full buffer section (header + the raw rounds since consolidation, at {buffer}), appended after
+# the view only when something was played since the last consolidation.
+DEFAULT_NOTES_VIEW = "<game>Your notes from earlier rounds:</game>\n{notes_line}"
+DEFAULT_NOTES_BUFFER = "<game>Your rounds since those notes:</game>\n{buffer}"
 
 # PREDICT mirrors DECIDE byte-for-byte (same transcript open/close lines, same {reason});
 # only the directive differs — predict the opponent's number instead of choosing your own.
 DEFAULT_PREDICT_PROMPT = (
-    "<game>Round {round} · opponent {partner}\n"
-    "The chat has been opened.</game>\n"
-    "{feed}\n"
-    "<game>The chat has been closed as {reason}. "
-    "Predict the number your opponent will secretly choose, from 0 to 9. "
-    "Reason first, then commit to a number.\n"
-    'Respond ONLY as JSON: {"rationale": "<short reason>", "number": <0-9>}</game>'
-)
-
-DEFAULT_PREDICT_PROMPT_BARE = (
     "<game>Round {round} · opponent {partner}\n"
     "The chat has been opened.</game>\n"
     "{feed}\n"
@@ -202,18 +171,6 @@ DEFAULT_NOTES_PROMPT = (
     'Respond ONLY as JSON: {"notes": "<your notes>"}</game>'
 )
 
-# How consolidated memory is rendered back into the transcript: the notes block, tagged
-# <you> — it is the agent's own private memo (the rules declare <you> as "your own lines").
-# Placeholder (literal replacement): {notes}.
-DEFAULT_NOTES_BLOCK_PROMPT = "<you>{notes}</you>"
-# Section headers framing the two parts of memory when notes are on: the consolidated notes
-# and the raw buffer of rounds played since the last consolidation. Tagged <game> (system
-# framing); the buffer header's <game> meets the first buffered round's <game> and the seam
-# collapses (Agent._merge_game_blocks) so the header opens that round's block.
-DEFAULT_NOTES_HEADER = "<game>Your notes from earlier rounds:</game>"
-DEFAULT_BUFFER_HEADER = "<game>Your rounds since those notes:</game>"
-
-
 # Correction on a parse retry: appended to the user message WHEN a phase response fails to
 # parse (Agent.act, max 2 retries). The text used to be hardcoded in src/core/agent.py as a
 # single dict and for DECIDE/PREDICT always required the rationale schema — even in bare mode
@@ -225,14 +182,9 @@ DEFAULT_TALK_CORRECTION = (
     '{"message": "<your message>", "finish": <true|false>}'
 )
 DEFAULT_DECIDE_CORRECTION = (
-    "Respond with ONLY valid JSON, nothing else: "
-    '{"rationale": "<short reason>", "number": <integer 0-9>}'
-)
-DEFAULT_DECIDE_CORRECTION_BARE = (
     'Respond with ONLY valid JSON, nothing else: {"number": <integer 0-9>}'
 )
 DEFAULT_PREDICT_CORRECTION = DEFAULT_DECIDE_CORRECTION
-DEFAULT_PREDICT_CORRECTION_BARE = DEFAULT_DECIDE_CORRECTION_BARE
 DEFAULT_REFLECT_CORRECTION = (
     'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
 )
@@ -278,62 +230,45 @@ class GameCfg:
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
     talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # first turn (empty feed): the agent opens the conversation
-    # rationale=True -> *_prompt is used (asks to reason before the number),
-    # rationale=False -> *_prompt_bare (number only). This is a choice of a WHOLE static template,
-    # not a conditional text assembly. Empty -> the corresponding DEFAULT_*.
-    rationale: bool = True           # ask for a rationale before the number in DECIDE/PREDICT
-    decide_prompt: str = ""          # empty -> DEFAULT_DECIDE_PROMPT (rationale variant, {round}/{partner}/{feed}/{reason})
-    decide_prompt_bare: str = ""     # empty -> DEFAULT_DECIDE_PROMPT_BARE (number only)
-    predict_prompt: str = ""         # empty -> DEFAULT_PREDICT_PROMPT (rationale variant)
-    predict_prompt_bare: str = ""    # empty -> DEFAULT_PREDICT_PROMPT_BARE (number only)
+    # One decide_prompt/predict_prompt (no _bare variant). The rationale flag does NOT pick a
+    # template — it only gates whether the returned rationale is read/stored. Write the single
+    # prompt to match: rationale=True -> ask for {"rationale","number"}; False -> {"number"}.
+    rationale: bool = False          # read/store a rationale from DECIDE/PREDICT (write the prompt to match)
+    decide_prompt: str = ""          # empty -> DEFAULT_DECIDE_PROMPT; one template, rationale flag gates reading the rationale
+    predict_prompt: str = ""         # empty -> DEFAULT_PREDICT_PROMPT ({round}/{partner}/{feed}/{reason})
     reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # post-game reflection: an extra LLM call after the outcome
     memory_notes_every: int = 0      # 0 = off; every N rounds PLAYED by the agent, it folds memory into notes
     notes_prompt: str = DEFAULT_NOTES_PROMPT  # note-call template ({round}/{score})
-    notes_block_prompt: str = DEFAULT_NOTES_BLOCK_PROMPT  # notes wrapper in history ({notes})
-    notes_header: str = DEFAULT_NOTES_HEADER    # header label above the consolidated notes
-    buffer_header: str = DEFAULT_BUFFER_HEADER  # header label above the round buffer after consolidation
-    # A past round's history is rendered to the agent as a game transcript (tags <game>/<you>/<name>);
-    # these templates live in the config so the prompt text is not hardcoded in the code (see src/core/memory.py).
-    history_round_prompt: str = DEFAULT_HISTORY_ROUND_PROMPT   # {round} {partner}
     msg_self: str = DEFAULT_MSG_SELF                           # the agent's own message line ({text})
     msg_partner: str = DEFAULT_MSG_PARTNER                     # the partner's message line ({partner}/{text})
-    history_close_prompt: str = DEFAULT_HISTORY_CLOSE_PROMPT   # {reason} (bare / rationale=false)
-    history_close_prompt_rationale: str = DEFAULT_HISTORY_CLOSE_PROMPT_RATIONALE  # {reason} (rationale=true, mirrors decide)
     reason_limit: str = DEFAULT_REASON_LIMIT                   # the {reason} phrase: chat closed due to the message limit
     reason_agreed: str = DEFAULT_REASON_AGREED                 # the {reason} phrase: both agreed to close the chat
-    history_result_prompt: str = DEFAULT_HISTORY_RESULT_PROMPT  # {round} {partner} {partner_number} {payoff} {partner_payoff} {total}
-    # Private traces in a past round's history (the agent's personal scratchpad) — each under ITS
-    # OWN flag; the line is added only if the flag is on AND its field is non-empty.
-    show_predicted: bool = True                                  # whether to add the prediction line
-    show_rationale: bool = True                                  # whether to add the rationale line
-    show_reflection: bool = True                                 # whether to add the reflection line
-    history_predicted_prompt: str = DEFAULT_HISTORY_PREDICTED_PROMPT    # {partner} {my_predicted}
-    history_rationale_prompt: str = DEFAULT_HISTORY_RATIONALE_PROMPT    # {my_rationale} {my_number} (rationale + number as one block)
-    history_reflection_prompt: str = DEFAULT_HISTORY_REFLECTION_PROMPT  # {my_reflection}
-    # Corrections on parse retry (per phase; DECIDE/PREDICT — bare/rationale same as the prompt itself).
-    # No placeholders — appended verbatim to the user message when the response fails to parse.
+    # One full-round template for a past round (see DEFAULT_HISTORY_PROMPT): header + {feed} +
+    # close + response + result [+ takeaway], written per experiment.
+    history_prompt: str = DEFAULT_HISTORY_PROMPT               # {round} {partner} {feed} {reason} {my_rationale} {my_number} {my_number_line} {partner_number} {payoff} {partner_payoff} {total} {my_reflection}
+    # Notes rendering: the view (header + {notes_line}/{notes}) and the buffer section
+    # (header + {buffer}), appended after the view only when rounds were played since consolidation.
+    notes_view: str = DEFAULT_NOTES_VIEW
+    notes_buffer: str = DEFAULT_NOTES_BUFFER
+    # Corrections on parse retry (per phase). No placeholders — appended verbatim to the user
+    # message when the response fails to parse.
     talk_correction: str = DEFAULT_TALK_CORRECTION
     decide_correction: str = DEFAULT_DECIDE_CORRECTION
-    decide_correction_bare: str = DEFAULT_DECIDE_CORRECTION_BARE
     predict_correction: str = DEFAULT_PREDICT_CORRECTION
-    predict_correction_bare: str = DEFAULT_PREDICT_CORRECTION_BARE
     reflect_correction: str = DEFAULT_REFLECT_CORRECTION
     note_correction: str = DEFAULT_NOTE_CORRECTION
 
     def __post_init__(self) -> None:
-        """Fill empty DECIDE/PREDICT templates (both variants) with defaults.
+        """Fill empty DECIDE/PREDICT templates with defaults.
 
-        Each template is static: an empty string means "use the standard one", otherwise
-        the exact given text is used. Which of the two variants reaches the agent is decided
-        by the rationale flag in decide_context/predict_context — this is a choice of a whole
-        template, not text assembly.
+        Each template is static: an empty string means "use the standard one", otherwise the
+        exact given text is used. There is one template per phase now; the rationale flag only
+        gates whether the returned rationale is read/stored, not which template is sent.
         """
         for name, default in (
             ("decide_prompt", DEFAULT_DECIDE_PROMPT),
-            ("decide_prompt_bare", DEFAULT_DECIDE_PROMPT_BARE),
             ("predict_prompt", DEFAULT_PREDICT_PROMPT),
-            ("predict_prompt_bare", DEFAULT_PREDICT_PROMPT_BARE),
         ):
             if not getattr(self, name):
                 object.__setattr__(self, name, default)
@@ -419,7 +354,6 @@ def _provider_cfg(d: dict) -> ProviderCfg:
 
 def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
-    d.pop("rules", None)             # legacy: rules are no longer a separate field — they travel inside system_prompt
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
     return GameCfg(payoffs=payoffs, **d)
 
@@ -434,8 +368,6 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
-    # legacy persona/identity_prompt keys are simply ignored (a.get doesn't read them) — old
-    # stored configs still load, just without the removed fields.
     agents = [
         AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
@@ -482,6 +414,11 @@ def _validate(d: dict) -> None:
     notes_every = d.get("game", {}).get("memory_notes_every", 0)
     if not isinstance(notes_every, int) or isinstance(notes_every, bool) or notes_every < 0:
         raise ValueError(f"memory_notes_every must be an integer >= 0, got: {notes_every!r}")
+
+    # Collapsed notes rendering needs both halves: the notes view and the full buffer section.
+    game = d.get("game", {})
+    if game.get("notes_view") is not None and "notes_buffer" not in game:
+        raise ValueError("notes_view requires notes_buffer (the full buffer section)")
 
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])
