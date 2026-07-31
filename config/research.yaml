@@ -77,10 +77,16 @@ game:
   reason_limit: the messages number limit has been reached
   reason_agreed: both players agreed to stop
 
+  # Paragraph whose fragments are all empty vanishes whole (first round).
+
   talk_open_prompt: |-
+    {recent_rounds}
+
     <game>Round {round} with {partner}:
     The chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   talk_prompt: |-
+    {recent_rounds}
+
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
@@ -89,6 +95,8 @@ game:
     Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}
 
   decide_prompt: |-
+    {recent_rounds}
+
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}

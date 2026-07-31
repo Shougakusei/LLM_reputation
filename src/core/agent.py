@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from src.core.config import GameCfg, ProviderCfg
+from src.core.config import GameCfg, PromptVariants, ProviderCfg
 from src.core.jsonextract import extract_json_obj
 from src.core.memory import Memory
 from src.providers.base import LLMProvider, Message, ProviderError
@@ -23,6 +23,33 @@ _GAME_SEAM = re.compile(r"</game>(\s*)<game>")
 def _merge_game_blocks(text: str) -> str:
     """Remove </game>…<game> seams between adjacent blocks — yields one transcript."""
     return _GAME_SEAM.sub(r"\1", text)
+
+
+# Substitution order: the note text goes last so its content is never rescanned.
+_FRAGMENT_KEYS = ("recent_rounds", "history_lines", "history", "notes_line", "notes")
+
+
+def _fill_fragments(template: str, frags: dict[str, str]) -> str:
+    """Substitute the memory fragments, wiping sections whose memory is empty.
+
+    The template splits into paragraphs (blank-line-delimited groups). A paragraph that
+    names fragments which ALL render empty is dropped whole — its headers included; that is
+    how a with_history text degrades into the no_history message on the first round. In a
+    kept paragraph an individual empty fragment vanishes with just its own line.
+    """
+    out = []
+    for paragraph in template.split("\n\n"):
+        keys = [k for k in _FRAGMENT_KEYS if "{%s}" % k in paragraph]
+        if keys and all(not frags[k] for k in keys):
+            continue
+        for k in keys:
+            if frags[k]:
+                paragraph = paragraph.replace("{%s}" % k, frags[k])
+            else:
+                paragraph = (paragraph.replace("{%s}\n" % k, "")
+                             .replace("{%s}" % k, ""))
+        out.append(paragraph)
+    return "\n\n".join(out)
 
 
 class ActParseError(Exception):
@@ -49,7 +76,7 @@ class PhaseKind(Enum):
 @dataclass(frozen=True)
 class Phase:
     kind: PhaseKind
-    context: str          # rendered situation + output instruction (becomes a user message)
+    context: str | PromptVariants   # the step prompt with facts already filled
     game_cfg: GameCfg | None = None  # history transcript templates + payoffs for substitution into system; comes from the game
 
 
@@ -167,7 +194,25 @@ class Agent:
         # so nothing is lost during consolidation; the other phases use the window.
         window = None if phase.kind is PhaseKind.NOTE else self._window
         diary = self.memory.render(window, phase.game_cfg)  # [] or [user message with the history transcript]
-        history = f"{diary[0].content}\n\n" if diary else ""
+        history = diary[0].content if diary else ""
+        context = phase.context
+        if isinstance(context, PromptVariants):
+            # "Past" excludes the just-played round at NOTE time (already in memory).
+            past = len(self.memory.entries) - (1 if phase.kind is PhaseKind.NOTE else 0)
+            if past > 0 or context.no_history is None:
+                context = context.with_history
+            else:
+                context = context.no_history
+            owns = True
+        else:
+            owns = any("{%s}" % k in context for k in _FRAGMENT_KEYS)
+        if owns:
+            frags = self.memory.fragments(window, phase.game_cfg)
+            frags["history"] = history
+            base = _fill_fragments(context, frags)
+        else:
+            # Legacy assembly (stored configs): memory diary precedes the phase context.
+            base = f"{history}\n\n{context}" if history else context
         cfg = self.setup.provider_cfg
 
         prompt_toks = 0
@@ -175,8 +220,8 @@ class Agent:
         calls: list[LLMCall] = []
         correction: str | None = None
         for attempt in range(1, _MAX_PARSE_RETRIES + 2):
-            # one user message: memory diary + phase context (+ correction on parse retry)
-            content = history + phase.context
+            # one user message: the assembled step prompt (+ correction on parse retry)
+            content = base
             if correction is not None:
                 content = f"{content}\n\n{correction}"
             content = _merge_game_blocks(content)   # merge the </game>…<game> seams
@@ -294,7 +339,8 @@ def _validate_reflect(obj: dict) -> dict | None:
 
 
 def _validate_notes(obj: dict) -> dict | None:
-    notes = obj.get("notes")
+    # "note" (current configs) or "notes" (stored ones); normalized to the internal "notes".
+    notes = obj.get("note", obj.get("notes"))
     if notes is None:  # the key is required; otherwise retry with a correction
         return None
     if not isinstance(notes, str):

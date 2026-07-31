@@ -6,6 +6,8 @@ config objects are **frozen dataclasses**.
 
 Reference configs:
 
+- `config/reference.yaml` — **catalogue of every parameter** with inline descriptions; loads
+  as a valid episode, copy pieces from it when building a real config.
 - `config/experiment.yaml` — the main single-episode config used by `experiment.py`.
 - `config/research.yaml` — the design used by the `research.py` model sweep.
 - `config/judge_qwen3_vllm.yaml` — a judge-only config (points the LLM judge at a vLLM/Ollama endpoint).
@@ -72,13 +74,67 @@ Core knobs:
 substituted — never assembled from text chunks. Each defaults to a `DEFAULT_*` in
 `src/core/config.py`; delete a key to use the default.
 
-- Instruction prompts: `talk_prompt`, `talk_open_prompt` (first turn of a round, empty
-  feed), `decide_prompt`, `predict_prompt`, `reflect_prompt`, `notes_prompt`. There is one
-  `decide_prompt`/`predict_prompt` (no `_bare` variant); the `rationale` flag does not pick a
-  template — it only gates whether the returned rationale is read/stored, so write the single prompt
-  to match (`{"rationale","number"}` when on, `{"number"}` when off). `predict_prompt` mirrors
-  `decide_prompt` except the directive.
-  Placeholders: `{round} {partner} {feed} {reason}` (`{reason}` = how the chat closed).
+- **Step prompts** — one per LLM call kind: `talk_open_prompt` (first turn of a round, empty
+  feed), `talk_prompt`, `decide_prompt`, `predict_prompt`, `reflect_prompt`, `notes_prompt`.
+  A step prompt is the agent's **whole user message**, usually one string:
+
+  ```yaml
+  decide_prompt: |-
+    {recent_rounds}
+
+    <game>Round {round} with {partner}: ...</game>
+  ```
+
+  **Memory fragments** (filled from the agent's memory): `{recent_rounds}` — rounds not yet
+  folded into the note, one `history_prompt` block each (with notes off that is the whole
+  past; the `context_window` applies); `{history_lines}` — rounds already folded, one
+  `history_line` each; `{notes}` — the memory note raw text (write the tags yourself;
+  `{notes_line}` is the pre-wrapped-through-`msg_self` form); `{history}` — the memory as
+  one engine-composed block (the legacy composition, see *Notes rendering*).
+  **The paragraph rule**: the template splits into paragraphs (blank-line-delimited groups);
+  a paragraph that names fragments which ALL render empty is dropped whole — headers
+  included — so a memory head disappears by itself on the agent's first round. In a kept
+  paragraph an individual empty fragment vanishes with just its own line. Keep a header in
+  the same paragraph as its fragment (no blank line between), or it will dangle.
+  **Tag convention**: `msg_self`/`msg_partner` are the *chat-turn* line templates — the only
+  place the engine wraps text itself (it must loop over the turns of `{feed}`). Every other
+  agent-authored piece is written in the template with **explicit tags**: `<you>{my_number}</you>`,
+  `<you>{notes}</you>`, `<you>rationale: {my_rationale}</you>` — WYSIWYG, free multi-line
+  composition. `<game>` is the game's voice: headers, instructions, results, and the
+  `*_correction` texts (wrap them too). One caution: a hand-written wrapper does not vanish
+  when its fragment is empty *and* shares a paragraph with a non-empty fragment (the
+  paragraph stays, leaving bare tags) — in that one case use the pre-wrapped `{notes_line}`
+  form, which renders to nothing when empty.
+  **Fact placeholders** (filled by the game): `{round} {partner} {feed} {score} {reason}`
+  (`{reason}` = how the chat closed; `{partner}` in `notes_prompt` = the co-player of the
+  round that triggered the consolidation).
+
+  When the first-round message needs genuinely different **wording** (not just fewer
+  sections), split the step by memory state:
+
+  ```yaml
+  decide_prompt:
+    no_history: |-      # the agent's first played round
+      <game>Round {round} with {partner}: ...</game>
+    with_history: |-    # later rounds
+      {recent_rounds}
+
+      <game>Round {round} with {partner}: ...</game>
+  ```
+
+  The variant is chosen by whether any round was played **before the current one** (at NOTE
+  time the just-played round is already in memory and does not count as past); this is the
+  only conditional in prompt assembly. `no_history` is optional — omitted, `with_history`
+  serves both states and degrades via the paragraph rule.
+
+  A step prompt that names no fragment gets the memory **prepended** (legacy assembly —
+  how all stored configs behave); one that names any owns its message entirely, so omitting
+  a fragment from one step is how you hide it there.
+
+  There is one `decide_prompt`/`predict_prompt` (no `_bare` variant); the `rationale` flag
+  does not pick a template — it only gates whether the returned rationale is read/stored, so
+  write the prompt to match (`{"rationale","number"}` when on, `{"number"}` when off).
+  `predict_prompt` mirrors `decide_prompt` except the directive.
 - **History**: **`history_prompt`** — one full-round template the model sees verbatim (header +
   `{feed}` + close + response + result, plus whatever else that experiment wants — a rationale
   block, a takeaway, …). Each experiment writes its own, so there is no flag-based variant
@@ -87,16 +143,23 @@ substituted — never assembled from text chunks. Each defaults to a `DEFAULT_*`
   `talk`/`decide` prompts use (its whole line is dropped when the round had none), filled via
   `msg_self`/`msg_partner`; other placeholders: `{round} {partner} {reason} {my_rationale}
   {my_number} {my_number_line} {partner_number} {payoff} {partner_payoff} {total}
-  {my_reflection}`. `{my_number_line}` is the agent's own number rendered **through `msg_self`**
-  (so the tag stays in sync with the cheap-talk lines); `{my_number}` is the raw integer (for an
-  inline rationale block). `reason_limit` / `reason_agreed` supply the `{reason}` phrase.
+  {my_reflection}`. Per the tag convention, write the response line with explicit tags —
+  `<you>{my_number}</you>` (or a combined block like `<you>rationale: {my_rationale}
+  number: {my_number}</you>`); `{my_number_line}` is the pre-wrapped-through-`msg_self`
+  legacy form. `reason_limit` / `reason_agreed` supply the `{reason}` phrase.
   `DEFAULT_HISTORY_PROMPT` (`src/core/config.py`) is the canonical wording.
-- **Notes rendering**: `notes_view` (header + the notes line) and `notes_buffer` (the full buffer
-  section, `{buffer}` = the raw rounds since consolidation; appended after the view only when
-  something was played since the last consolidation). Both keys go together (validated at load).
-  In `notes_view`, `{notes_line}` is the saved notes rendered **through `msg_self`**; raw
-  `{notes}` is also available for custom layouts. `notes_prompt` stays separate — it is the live
-  NOTE-phase instruction, appended after the rendered memory in the same user message.
+- **`history_line`** — the one-line template behind `{history_lines}`: a compact line per
+  round already folded into notes (same placeholders as `history_prompt`), so the bare facts
+  of all past rounds survive consolidation while details live only in the note. Unset
+  (default) = folded rounds are not re-shown. Validated at load: `{history_lines}` in a step
+  requires `history_line`, and a `history_line` without any consumer is rejected.
+- **Notes rendering (legacy composition)** — how `{history}` / the prepended memory is
+  composed once a note exists: `notes_view` (header + the notes line; `{notes_line}` =
+  the saved notes **through `msg_self`**, raw `{notes}` also available, `{lines}` = the
+  `history_line` rows) followed by `notes_buffer` (`{buffer}` = the raw rounds since
+  consolidation; appended only when something was played since). Both keys go together
+  (validated at load). New configs that lay fragments out in step prompts don't need these
+  two keys at all.
 - Parse-retry corrections (appended when a reply is unparseable): `talk_correction`,
   `decide_correction`, `predict_correction`, `reflect_correction`, `note_correction` (one per
   phase; write the DECIDE/PREDICT correction to match the prompt's JSON shape).

@@ -91,7 +91,9 @@ Payoff invariants (`Payoffs`, `src/core/config.py`): `T > R > P > S` and `2R > T
    agent has actually played (counted per-agent as `len(memory.entries)`; idle rounds
    don't count), it makes a `NOTE` call that rewrites its whole memory into private
    notes. From then on `Memory.render` sends those notes **instead of** the raw round
-   history, plus a raw buffer of rounds played since the last consolidation.
+   history, plus a raw buffer of rounds played since the last consolidation. With
+   `game.history_line` set, the folded rounds additionally survive as compact one-liners
+   (facts only: round, partner, payoff) rendered into `{lines}` of `notes_view`.
 
 A failed LLM call in any phase aborts the pairing (see *Failure handling*).
 
@@ -114,10 +116,21 @@ needs validation.
 
 ## Agent & phases (`src/core/agent.py`)
 
-An `Agent` owns its `Memory`, a running `score`, and an `LLMProvider`. `Agent.act` glues
-the memory diary and the phase context into a **single** user message, calls the provider,
-and parses the reply as JSON with up to `_MAX_PARSE_RETRIES` correction retries; on total
-failure it raises `ActParseError` (no substitution/fallback).
+An `Agent` owns its `Memory`, a running `score`, and an `LLMProvider`. `Agent.act` builds a
+**single** user message per call. A step prompt arrives as a string or a `PromptVariants`
+pair — the one conditional in assembly picks `no_history`/`with_history` by whether any
+round was played *before the current one* (at NOTE time the just-played round is already in
+memory and does not count; a missing `no_history` falls back to `with_history`). The chosen
+text then gets the **memory fragments** substituted in place (`Memory.fragments` +
+`_fill_fragments`): `{recent_rounds}`, `{history_lines}`, `{notes_line}`/`{notes}`, and
+`{history}` (the engine-composed block). Substitution follows the **paragraph rule**: a
+blank-line-delimited paragraph whose fragments all render empty is dropped whole (headers
+included), which is how a `with_history` text degrades into the first-round message; inside
+a kept paragraph an empty fragment vanishes with just its own line. A plain-string prompt
+naming no fragment gets the memory **prepended** instead (legacy assembly, kept so stored
+configs replay unchanged). Agent.act then calls the provider and parses the reply as JSON
+with up to `_MAX_PARSE_RETRIES` correction retries; on total failure it raises
+`ActParseError` (no substitution/fallback).
 
 Five `PhaseKind`s: `TALK`, `DECIDE`, `PREDICT`, `REFLECT`, `NOTE`. **All phase prompts are
 static templates** — only named placeholders are substituted, never assembled from text
@@ -144,7 +157,8 @@ payoffs). After gluing history to the live prompt, `Agent.act` collapses adjacen
 blocks (`_merge_game_blocks`) so the input is one running transcript rather than a series
 of closed/reopened blocks. With memory notes on, `notes_view` renders the saved notes
 (via `msg_self`, as the agent's own memo) and `notes_buffer` appends the raw rounds played
-since the last consolidation.
+since the last consolidation; an optional `history_line` keeps a compact one-liner per
+folded round at `{lines}` inside `notes_view` (see [configuration.md](./configuration.md)).
 
 ### LLM input trace
 

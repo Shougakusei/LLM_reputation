@@ -297,6 +297,19 @@ async def test_memory_notes_taken_after_n_played_rounds():
     assert len(note_calls) == 2 and all(c.turn_idx is None for c in note_calls)
 
 
+async def test_note_prompt_receives_partner():
+    # The NOTE step knows who the round was played against: {partner} in notes_prompt.
+    g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1,
+                             notes_prompt="Update your notes about {partner} (round {round})."))
+    a = _agent("A1", [_decide(4), _note("ok")])
+    b = _agent("A2", [_decide(4), _note("ok")])
+    rec = await g.play_pairing(a, b, 1)
+    note_a = next(c for c in rec.llm_calls if c.phase == "note" and c.agent_id == "A1")
+    note_b = next(c for c in rec.llm_calls if c.phase == "note" and c.agent_id == "A2")
+    assert "about A2 (round 1)" in str(note_a.request)
+    assert "about A1 (round 1)" in str(note_b.request)
+
+
 async def test_note_failure_aborts_pairing_as_unfinished():
     g = ReputationPD(GameCfg(max_talk_turns=0, memory_notes_every=1))   # consolidation every pairing
     a = _agent("A1", [_decide(4), _note("ok")])   # decide ok, note ok

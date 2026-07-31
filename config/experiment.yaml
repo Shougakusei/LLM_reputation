@@ -1,11 +1,12 @@
-#   uv run python experiment.py
+# Research condition: PLAIN / baseline (no rationale, no memory notes; number-only decide_prompt).
+#   uv run python research.py   (point CONFIG/DB at this file — e.g. DB = qwen3.db)
 
 # ── Episode (EpisodeCfg) ──────────────────────────────────
-seed: random                  # (random|int)
-rounds: 2
+seed: random
+rounds: 3
 max_concurrency: 5
-matchmaker: random            # only "random" in the MVP
-context_window: null          # (null|int)
+matchmaker: random
+context_window: null
 idle_payoff: 1
 
 # ── Population (PopulationCfg) ────────────────────────────
@@ -46,94 +47,65 @@ population:
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
     You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is one higher than you expect from your co-player.
-  # play_strategy ("direct"|"prediction"), prediction_mapping ("match"|"one_above")
   agents:
-    - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
-    - {count: 1, play_strategy: 'direct', system_prompt: *system_defect}
-  provider: &provider
-    # base_url: http://localhost:11434/v1     # local Ollama (OpenAI-compatible)
-    # model: llama3.1:8b
-    base_url: https://api.together.xyz/v1
-    api_key_env: TOGETHER_API_KEY             # name of the env var with the key (value in .env)
-    model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
+    - {count: 8, play_strategy: 'direct', system_prompt: *system_default}
+    - {count: 2, play_strategy: 'direct', system_prompt: *system_defect}
+  provider:
+    base_url: http://localhost:11434/v1
+    model: llama3.1:8b
+    # base_url: https://api.together.xyz/v1
+    # api_key_env: TOGETHER_API_KEY
+    # model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8   # placeholder: research.py overrides per model (see MODELS)
     temperature: 0.7
     max_tokens: 2000
     timeout_s: 300
+    # reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
+                          # non-reasoning models ignore the field. reasoning_effort (high/max) — not set.
   kind: roster
-  # entries must be UNIQUE, pool size >= number of agents:
-  # both pools -> id = "First Last";   one pool -> id = the entry itself (no surname);   none -> A1..An.
-  # first_name_pool: [Rintarou, Kurisu, Mayuri, Itaru, Moeka, Ruka, Suzuha, Maho, Takumi, Rimi, Sena, Ayase, Kaito, Akiho, Nae, Takuru, Serika, Yuuta, Pollon, Momo]
-  # last_name_pool:  [Okabe, Makise, Shiina, Hashida, Kiryuu, Urushibara, Amane, Hiyajo, Nishijou, Sakihata, Aoi, Kishimoto, Yashio, Senomiya, Tennouji, Miyashiro, Onoe, Gamon, Takarada, Amasawa]
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
-
-# ── Judge (JudgeCfg, optional) ────────────────────────────
-# The LLM judge decides whether an institution of reputation emerged (sees only the public
-# cheap-talk). The *provider anchor reuses the population's provider — the judge runs the SAME
-# model as the agents. judge_runs.py also uses this block for backfill. Remove judge to disable.
-judge:
-  provider: *provider
 
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
-  max_talk_turns: 6
-  memory_notes_every: 0                # 0 = off (idle rounds don't count)
-  payoffs: {R: 3, T: 5, P: 1, S: 0}    # invariants: T > R > P > S and 2R > T + S
-  rationale: false                     # reason before the number? gates whether the returned rationale is read/stored
-  reflection: false                    # post-game reflection: an extra LLM call after the outcome
-  talk_stop_rule: both_ready_committed # stop when both set finish; variants differ on two axes:
-                                       # both_ready_latch:     you set finish, go silent, wait for the other (finish is sticky).
-                                       # both_ready_revocable: you keep talking, finish is revocable (false takes it back).
-                                       # both_ready_committed: you keep talking, but finish is sticky — cannot be revoked.
+  max_talk_turns: 10
+  memory_notes_every: 0
+  payoffs: {R: 3, T: 5, P: 1, S: 0}
+  rationale: false
+  reflection: false
+  talk_stop_rule: both_ready_committed
 
-  # Prompts are stored verbatim in the run's config. Delete a key to use the built-in
-  # default (config.py: DEFAULT_*). Placeholders are filled by the runner at play time.
-  # NB: the game rules now live in the agent's system_prompt (see &system_default above), not here.
-  #   talk:            {partner} {round} {feed}
-  #   talk_open:       {partner} {round} {feed}
-  #   decide:          {partner} {round} {feed} {reason}; one decide_prompt (rationale gates reading the rationale)
-  #   predict:         {partner} {round} {feed} {reason}; one predict_prompt (rationale gates reading the rationale)
-  #   reflect:         {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
-  #   notes:           {round} {score} (memory arrives as history; used when memory_notes_every>0)
-  #   notes_view:       {notes};  notes_buffer: {buffer} (collapsed: saved-notes view + full buffer section)
-  # The whole input is one game transcript: history of past rounds (tags <game>/<you>/<name>, see
-  # history_*/msg_*/reason_* below) + the current round. {feed} = the current round's messages
-  # with the same tags. The agent reads its own score from past rounds' result lines, so it is
-  # no longer in the talk/decide headers; {score} remains only in reflect/notes.
-  # (game rules — in the agent's system_prompt, see &system_default above)
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+
+  reason_limit: the messages number limit has been reached
+  reason_agreed: both players agreed to stop
+
+  # Paragraph whose fragments are all empty vanishes whole (first round).
+
+  talk_open_prompt: |-
+    {recent_rounds}
+
+    <game>Round {round} with {partner}:
+    The chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   talk_prompt: |-
+    {recent_rounds}
+
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
     <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # First turn of a round (empty feed): the agent opens the talk — no Talk block to respond to.
-  talk_open_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  # One decide_prompt (number only — this config runs rationale=false; the flag just gates whether a
-  # returned rationale is read). Self-contained (no fallback to code defaults). {reason} = how the chat closed.
+  talk_correction: |-
+    Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}
+
   decide_prompt: |-
+    {recent_rounds}
+
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
-  # PREDICT (only when play_strategy=prediction) mirrors decide — same open/close lines, only the directive: predict the co-player's number.
-  predict_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Predict the number your co-player will secretly choose. Please write the predicted number in the following JSON format: {"number": <0-9>}</game>
-  # ── Parse-retry corrections (appended to the user message when a phase reply fails to parse) ──
-  talk_correction: 'Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}'
-  decide_correction: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
-  predict_correction: 'Respond with ONLY valid JSON, nothing else: {"number": <0-9>}'
-  reflect_correction: 'Respond with ONLY valid JSON, nothing else: {"reflection": "<short reflection>"}'
-  note_correction: 'Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}'
-  # ── History of past rounds: ONE full-round template (the model sees it verbatim). {feed} is the
-  # rendered cheap-talk of the round; msg_self/msg_partner render each line, reason_* fill {reason}. ──
-  msg_self: <you>{text}</you>
-  msg_partner: <{partner}>{text}</{partner}>
-  reason_limit: the messages number limit has been reached
-  reason_agreed: both players agreed to stop
+  decide_correction: |-
+    Respond with ONLY valid JSON, nothing else: {"number": <0-9>}
+
   history_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
@@ -142,25 +114,3 @@ game:
     {my_number_line}
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
-  # Used only when reflection=true:
-  reflect_prompt: |-
-    Current round: [Round {round} with {partner}: · score {score}]
-    Talk:
-    {feed}
-
-    The round is over. {me} picked {my_number}, {partner} picked {partner_number}. You scored {payoff} points.
-    Reflect briefly on this outcome: what does it tell you about this co-player, and what should you do differently (or keep doing) in future rounds?
-    Respond ONLY as JSON: {"reflection": "<short reflection>"}
-  # Used only when memory_notes_every > 0: the agent rewrites its memory into notes that then
-  # replace the raw round-by-round history (full memory arrives above as history). Wrapped in
-  # <game> like the other instructions.
-  notes_prompt: |-
-    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please write your notes in the following JSON format: {"notes": "<your notes>"}</game>
-  # Collapsed notes: notes_view = header + <you>-wrapped notes; notes_buffer = the full buffer
-  # section (header + {buffer} = the raw rounds since consolidation).
-  notes_view: |-
-    <game>Your notes from earlier rounds:</game>
-    {notes_line}
-  notes_buffer: |-
-    <game>Your rounds since those notes:</game>
-    {buffer}

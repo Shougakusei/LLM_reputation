@@ -286,6 +286,44 @@ def test_collapsed_notes_view_only_when_buffer_empty():
     assert content == "<game>Your notes from earlier rounds:</game>\n<you>note text</you>"
 
 
+def test_history_line_renders_folded_rounds_inside_notes_view():
+    # history_line (compact one-liner per folded round) fills {lines} in notes_view, so the
+    # agent keeps the bare facts of ALL past rounds while details live only in its note.
+    view = ("<game>The history of your interactions:\n{lines}</game>\n"
+            "<game>Your memory note:</game>\n{notes_line}")
+    cfg = _collapsed_cfg(
+        notes_view=view,
+        notes_buffer="{buffer}",   # degenerate wrapper: buffer rounds flow like a live transcript
+        history_line="Round {round}. {partner}. You scored {payoff} (total: {total}).",
+    )
+    m = Memory()
+    m.add(_entry(round=1, partner="A2", score=0.0))
+    m.add(_entry(round=2, partner="A5", score=3.0))
+    m.set_notes("watch A5")
+    m.add(_entry(round=3, partner="A7", score=6.0))     # played after consolidation -> buffer
+    text = m.render(None, cfg)[0].content
+    assert ("<game>The history of your interactions:\n"
+            "Round 1. A2. You scored 3 (total: 3).\n"
+            "Round 2. A5. You scored 3 (total: 6).</game>") in text
+    assert "<game>Your memory note:</game>\n<you>watch A5</you>" in text
+    # the buffered round renders in full via history_prompt, with NO wrapper header
+    assert "<game>Round 3 · opponent A7" in text
+    assert text.count("let us both take 4") == 1        # rounds 1-2 keep no transcript
+    # order: compact history -> note -> buffered round
+    assert text.index("The history of your interactions")\
+        < text.index("Your memory note") < text.index("Round 3 · opponent A7")
+
+
+def test_notes_view_lines_placeholder_dropped_without_history_line():
+    # history_line unset (default) -> the {lines} line disappears from notes_view entirely.
+    view = "{lines}\n<game>Your memory note:</game>\n{notes_line}"
+    cfg = _collapsed_cfg(notes_view=view, notes_buffer="{buffer}")
+    m = Memory()
+    m.add(_entry(round=1))
+    m.set_notes("n")
+    assert m.render(None, cfg)[0].content == "<game>Your memory note:</game>\n<you>n</you>"
+
+
 def test_legacy_path_still_used_when_history_prompt_unset():
     # Default GameCfg leaves history_prompt None -> the piecewise legacy path is rendered.
     from src.core.config import GameCfg
@@ -294,3 +332,38 @@ def test_legacy_path_still_used_when_history_prompt_unset():
     m.add(_entry(round=3, partner="A5"))
     text = m.render(None, GameCfg())[0].content
     assert "The choice has been accepted. A5 chose 4" in text
+
+
+def test_fragments_split_folded_lines_note_and_recent_rounds():
+    # fragments() feeds the step-prompt placeholders: {history_lines} = folded rounds one
+    # line each, {notes}/{notes_line} = the note, {recent_rounds} = unfolded rounds in full.
+    from src.core.config import GameCfg
+
+    cfg = GameCfg(history_line="Round {round}. {partner}. You scored {payoff}.")
+    m = Memory()
+    m.add(_entry(round=1, partner="A2"))
+    m.set_notes("watch A2")
+    m.add(_entry(round=2, partner="A5", score=3.0))
+    f = m.fragments(None, cfg)
+    assert f["history_lines"] == "Round 1. A2. You scored 3."
+    assert "A5 chose 4" in f["recent_rounds"]           # round 2 rendered in full
+    assert "Round 1." not in f["recent_rounds"]         # folded round stays out of the buffer
+    assert f["notes"] == "watch A2"
+    assert f["notes_line"] == "<you>watch A2</you>"     # note wrapped in msg_self
+
+
+def test_fragments_empty_memory_gives_empty_strings():
+    from src.core.config import GameCfg
+
+    f = Memory().fragments(None, GameCfg())
+    assert f == {"history_lines": "", "recent_rounds": "", "notes_line": "", "notes": ""}
+
+
+def test_fragments_recent_rounds_respect_window():
+    from src.core.config import GameCfg
+
+    m = Memory()
+    m.add(_entry(round=1, partner="A2"))
+    m.add(_entry(round=2, partner="A5"))
+    f = m.fragments(1, GameCfg())
+    assert "A5" in f["recent_rounds"] and "A2 chose" not in f["recent_rounds"]

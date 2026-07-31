@@ -26,6 +26,20 @@ def test_notes_context_fills_round_and_score():
     assert notes_context(cfg, 4, 12.0) == "Consolidate at round 4, score 12."
 
 
+def test_notes_context_fills_partner():
+    cfg = GameCfg(notes_prompt="Update your notes about {partner} at round {round}.")
+    assert notes_context(cfg, 4, 12.0, partner="A7") == "Update your notes about A7 at round 4."
+
+
+def test_variant_step_prompt_fills_facts_in_both_variants():
+    from src.core.config import PromptVariants
+    cfg = GameCfg(decide_prompt=PromptVariants(no_history="first r{round} vs {partner}",
+                                               with_history="later r{round}: {feed} ({reason})"))
+    ctx = decide_context(cfg, "A2", 3, "F", reason="agreed")
+    assert ctx == PromptVariants(no_history="first r3 vs A2",
+                                 with_history="later r3: F (agreed)")
+
+
 def test_default_decide_template_asks_only_number():
     # rationale is off by default, so the default decide/predict prompt is number-only.
     assert '"rationale"' not in decide_context(GameCfg(), "A2", 1, "feed")

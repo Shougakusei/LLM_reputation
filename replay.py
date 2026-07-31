@@ -32,7 +32,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-DB_DEFAULT = "experiment.db"
+DB_DEFAULT = "db/experiment.db"
 
 # All configurable prompts live in cfg["game"]; in --config we print them in a separate
 # section after the header, and strip them from the config dump to avoid duplicating walls of text.

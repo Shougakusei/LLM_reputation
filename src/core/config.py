@@ -224,22 +224,42 @@ DEFAULT_JUDGE_CORRECTION = (
 
 
 @dataclass(frozen=True)
+class PromptVariants:
+    """A step prompt split by memory state.
+
+    An agent with no rounds played before the current one gets `no_history`; otherwise
+    `with_history` (which typically lays out the memory fragments itself). This is the only
+    conditional in prompt assembly — everything else is literal placeholder substitution.
+    `no_history` is optional: when None, `with_history` serves both states and the
+    empty-memory sections vanish by the paragraph rule (see Agent.act).
+    """
+
+    with_history: str
+    no_history: str | None = None
+
+
+# Step-prompt keys (one per LLM call kind) that may be split into PromptVariants.
+STEP_PROMPT_KEYS = ("talk_open_prompt", "talk_prompt", "decide_prompt",
+                    "predict_prompt", "reflect_prompt", "notes_prompt")
+
+
+@dataclass(frozen=True)
 class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
-    talk_prompt: str = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
-    talk_open_prompt: str = DEFAULT_TALK_OPEN_PROMPT  # first turn (empty feed): the agent opens the conversation
+    talk_prompt: str | PromptVariants = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
+    talk_open_prompt: str | PromptVariants = DEFAULT_TALK_OPEN_PROMPT  # first turn (empty feed): the agent opens the conversation
     # One decide_prompt/predict_prompt (no _bare variant). The rationale flag does NOT pick a
     # template — it only gates whether the returned rationale is read/stored. Write the single
     # prompt to match: rationale=True -> ask for {"rationale","number"}; False -> {"number"}.
     rationale: bool = False          # read/store a rationale from DECIDE/PREDICT (write the prompt to match)
-    decide_prompt: str = ""          # empty -> DEFAULT_DECIDE_PROMPT; one template, rationale flag gates reading the rationale
-    predict_prompt: str = ""         # empty -> DEFAULT_PREDICT_PROMPT ({round}/{partner}/{feed}/{reason})
-    reflect_prompt: str = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
+    decide_prompt: str | PromptVariants = ""          # empty -> DEFAULT_DECIDE_PROMPT; one template, rationale flag gates reading the rationale
+    predict_prompt: str | PromptVariants = ""         # empty -> DEFAULT_PREDICT_PROMPT ({round}/{partner}/{feed}/{reason})
+    reflect_prompt: str | PromptVariants = DEFAULT_REFLECT_PROMPT  # post-game reflection (+{my_number}/{partner_number}/{payoff})
     reflection: bool = False         # post-game reflection: an extra LLM call after the outcome
     memory_notes_every: int = 0      # 0 = off; every N rounds PLAYED by the agent, it folds memory into notes
-    notes_prompt: str = DEFAULT_NOTES_PROMPT  # note-call template ({round}/{score})
+    notes_prompt: str | PromptVariants = DEFAULT_NOTES_PROMPT  # note-call template ({round}/{partner}/{score})
     msg_self: str = DEFAULT_MSG_SELF                           # the agent's own message line ({text})
     msg_partner: str = DEFAULT_MSG_PARTNER                     # the partner's message line ({partner}/{text})
     reason_limit: str = DEFAULT_REASON_LIMIT                   # the {reason} phrase: chat closed due to the message limit
@@ -247,6 +267,11 @@ class GameCfg:
     # One full-round template for a past round (see DEFAULT_HISTORY_PROMPT): header + {feed} +
     # close + response + result [+ takeaway], written per experiment.
     history_prompt: str = DEFAULT_HISTORY_PROMPT               # {round} {partner} {feed} {reason} {my_rationale} {my_number} {my_number_line} {partner_number} {payoff} {partner_payoff} {total} {my_reflection}
+    # Compact one-liner for a round already folded into notes (same placeholders as
+    # history_prompt); the lines fill {lines} in notes_view, so the agent keeps the bare
+    # facts of ALL past rounds while details live only in its note. Empty (default) =
+    # folded rounds are not re-shown (the note alone stands for them).
+    history_line: str = ""
     # Notes rendering: the view (header + {notes_line}/{notes}) and the buffer section
     # (header + {buffer}), appended after the view only when rounds were played since consolidation.
     notes_view: str = DEFAULT_NOTES_VIEW
@@ -355,6 +380,9 @@ def _provider_cfg(d: dict) -> ProviderCfg:
 def _game_cfg(d: dict) -> GameCfg:
     d = dict(d)
     payoffs = Payoffs(**d.pop("payoffs")) if "payoffs" in d else Payoffs()
+    for key in STEP_PROMPT_KEYS:                 # a mapping = the no_history/with_history split
+        if isinstance(d.get(key), dict):
+            d[key] = PromptVariants(**d[key])
     return GameCfg(payoffs=payoffs, **d)
 
 
@@ -419,6 +447,29 @@ def _validate(d: dict) -> None:
     game = d.get("game", {})
     if game.get("notes_view") is not None and "notes_buffer" not in game:
         raise ValueError("notes_view requires notes_buffer (the full buffer section)")
+
+    # Step prompts: a mapping is the no_history/with_history split. with_history is
+    # required; no_history is optional (fallback: with_history + the paragraph rule).
+    step_texts = []
+    for key in STEP_PROMPT_KEYS:
+        v = game.get(key)
+        if isinstance(v, dict):
+            if (not set(v) <= {"no_history", "with_history"} or "with_history" not in v
+                    or not all(isinstance(t, str) for t in v.values())):
+                raise ValueError(f"{key}: a variant step prompt must map with_history "
+                                 "(and optionally no_history) to strings")
+            step_texts += list(v.values())
+        elif isinstance(v, str):
+            step_texts.append(v)
+    steps_blob = "\n".join(step_texts)
+    # history_line and {history_lines} come in a pair: the template feeds the placeholder.
+    if "{history_lines}" in steps_blob and not game.get("history_line"):
+        raise ValueError("{history_lines} in a step prompt requires history_line "
+                         "(the one-line template for a folded round)")
+    if (game.get("history_line") and "{history_lines}" not in steps_blob
+            and "{lines}" not in game.get("notes_view", "")):
+        raise ValueError("history_line has no consumer: use {history_lines} in a step "
+                         "prompt or {lines} in notes_view")
 
     pop = d["population"]
     total = sum(a.get("count", 1) for a in pop["agents"])

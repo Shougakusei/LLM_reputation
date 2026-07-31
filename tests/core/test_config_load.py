@@ -298,6 +298,147 @@ def test_system_prompt_loaded_per_agent(tmp_path):
     assert cfg.population.agents[0].system_prompt == "You are {id}, a ruthless trader. {R}/{T}/{P}/{S}."
 
 
+def test_history_line_requires_lines_placeholder_in_notes_view(tmp_path):
+    # history_line renders into {lines} of notes_view or {history_lines} of a step prompt;
+    # with neither consumer the compact round lines would silently never be shown.
+    f = tmp_path / "notes.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          history_line: "Round {round}. {partner}. You scored {payoff}."
+          notes_view: "<game>Your memory note:</game>\\n{notes_line}"
+          notes_buffer: "{buffer}"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError, match="history_line"):
+        load_episode(str(f))
+
+
+def test_step_prompt_variants_load_into_prompt_variants(tmp_path):
+    # A step prompt may be split by memory state: no_history / with_history.
+    f = tmp_path / "variants.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          decide_prompt:
+            no_history: "first round: pick"
+            with_history: "later: {recent_rounds} pick"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    cfg = load_episode(str(f))
+    from src.core.config import PromptVariants
+    assert cfg.game.decide_prompt == PromptVariants(
+        no_history="first round: pick", with_history="later: {recent_rounds} pick")
+    assert isinstance(cfg.game.talk_prompt, str)     # untouched keys stay plain strings
+
+
+def test_step_prompt_variants_reject_unknown_keys(tmp_path):
+    f = tmp_path / "bad.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          talk_prompt:
+            no_history: "a"
+            later: "b"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError, match="no_history"):
+        load_episode(str(f))
+
+
+def test_step_prompt_variants_no_history_optional(tmp_path):
+    # Only with_history given -> it serves both states (empty sections vanish by the
+    # paragraph rule at act time); no_history stays None.
+    f = tmp_path / "fb.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          decide_prompt:
+            with_history: "{recent_rounds}\\n\\npick"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    cfg = load_episode(str(f))
+    assert cfg.game.decide_prompt.no_history is None
+    assert cfg.game.decide_prompt.with_history == "{recent_rounds}\n\npick"
+
+
+def test_step_prompt_variants_require_with_history(tmp_path):
+    f = tmp_path / "nowh.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          decide_prompt:
+            no_history: "pick"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError, match="with_history"):
+        load_episode(str(f))
+
+
+def test_history_lines_placeholder_requires_history_line(tmp_path):
+    # {history_lines} in a step prompt is fed by the history_line template; without it the
+    # placeholder would silently render empty forever.
+    f = tmp_path / "nol.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: random
+        game:
+          decide_prompt:
+            no_history: "pick"
+            with_history: "{history_lines} pick"
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError, match="history_line"):
+        load_episode(str(f))
+
+
 def test_unknown_game_keys_are_rejected(tmp_path):
     # legacy support is gone: a config with extinct game keys fails fast instead of
     # silently loading (stored runs were migrated to the current structure).

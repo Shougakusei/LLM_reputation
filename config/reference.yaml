@@ -1,0 +1,186 @@
+# ── REFERENCE CONFIG ─────────────────────────────────────────────────────────
+# Catalogue of EVERY parameter the engine understands, with meanings and defaults.
+# It loads as a valid episode (uv run python experiment.py config/reference.yaml),
+# but it is a reference, not a research condition — copy pieces into a real config.
+# The dataclasses behind it: src/core/config.py (EpisodeCfg / PopulationCfg /
+# GameCfg / ProviderCfg / JudgeCfg). Full docs: docs/configuration.md.
+
+# ── Episode (EpisodeCfg) ─────────────────────────────────────────────────────
+seed: random            # int = fixed & reproducible; "random" = drawn at load (the drawn int is persisted)
+rounds: 10              # number of rounds in the episode
+matchmaker: random      # pairing scheme; only "random" is implemented
+context_window: null    # per-agent memory window in rounds; null = unbounded
+idle_payoff: 1          # what the odd agent out scores when it sits a round out
+max_concurrency: 5      # how many pairings play at the same time (semaphore)
+
+# ── Population (PopulationCfg) ───────────────────────────────────────────────
+population:
+  kind: roster          # only "roster" is implemented
+
+  # The system prompt is ONE per-agent string, taken verbatim. The engine substitutes
+  # only {id} and the payoff placeholders {R}/{T}/{P}/{S}/{max_talk_turns}.
+  # Define once as an anchor (&name), share between agent groups via *name.
+  system_example: &system_example |-
+    You are AI agent {id}.
+
+    You are playing a repeated game. Equal numbers score {R} points each; a number one
+    higher scores {T} against {S}; anything else scores {P}. Up to {max_talk_turns}
+    chat messages per round.
+
+  # Agent groups; population size = sum of counts. Strategy is per-agent, so one
+  # population can mix direct and prediction agents.
+  agents:
+    - count: 2
+      play_strategy: direct            # the agent picks its number itself (default)
+      system_prompt: *system_example
+    - count: 2
+      play_strategy: prediction        # the agent predicts the co-player's number...
+      prediction_mapping: one_above    # ...and plays: match (copy it) | one_above (undercut it)
+      system_prompt: *system_example
+
+  # Agent ids: both pools -> unique "First Last"; one pool -> the entry itself;
+  # no pools -> A1..An. A non-empty pool must be unique and hold >= population size.
+  first_name_pool: [Player 101, Player 202, Player 303, Player 404]
+  last_name_pool: []
+
+  # One LLM provider shared by every agent (required). Any OpenAI-compatible
+  # /chat/completions endpoint (Together.ai, Ollama, vLLM, ...).
+  provider:
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY   # NAME of the env var holding the key (read from .env)
+    model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8
+    temperature: 0.7
+    max_tokens: 2000       # completion token budget per call
+    timeout_s: 300         # HTTP timeout per attempt, seconds
+    reasoning: true        # false = send {"reasoning": {"enabled": false}} (Together Non-think)
+    reasoning_effort: ""   # "" | high | max — forwarded only when non-empty
+
+# ── Game (GameCfg) ───────────────────────────────────────────────────────────
+game:
+  payoffs: {R: 3, T: 5, P: 1, S: 0}     # must satisfy T > R > P > S and 2R > T + S
+  max_talk_turns: 10                    # hard ceiling on chat messages per round
+  talk_stop_rule: both_ready_committed  # both_ready_latch | both_ready_revocable | both_ready_committed
+  rationale: false        # true = read/store a rationale from DECIDE (write the prompt to ask for it)
+  reflection: false       # true = one extra REFLECT call per agent after the outcome
+  memory_notes_every: 1   # 0 = off; N = the agent folds its memory into a note every N played rounds
+
+  # Chat-turn line templates — the ONLY place the engine wraps text itself (it loops
+  # over the turns of {feed}). Everything else agent-authored is written in templates
+  # with explicit tags: <you>{my_number}</you>, <you>{notes}</you>.
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+
+  # The {reason} phrase of the chat-close line.
+  reason_limit: the message limit has been reached
+  reason_agreed: both players agreed to stop
+
+  # ── Step prompts ─── one per LLM call; each is the agent's WHOLE user message.
+  #
+  # Fact placeholders (filled by the game): {round} {partner} {score} {feed} {reason}
+  #   ({feed} = the current chat; in notes_prompt {partner} = the round's co-player).
+  # Memory fragments (filled from the agent's memory):
+  #   {recent_rounds}   rounds not yet folded into the note, one history_prompt block
+  #                     each (with notes off: the whole past; context_window applies)
+  #   {history_lines}   rounds already folded into the note, one history_line each
+  #   {notes}           the memory note raw text (write tags yourself); {notes_line} =
+  #                     pre-wrapped through msg_self, renders to nothing when empty
+  #   {history}         the memory as one engine-composed block (legacy composition)
+  # Paragraph rule: a blank-line-delimited paragraph whose fragments ALL render empty
+  # is dropped whole (headers included) — keep a header in the same paragraph as its
+  # fragment. A prompt naming NO fragment gets the memory prepended instead (legacy).
+  #
+  # A step prompt is one string, or a pair split by memory state:
+  #   no_history   — the agent's first played round (optional; omitted = with_history
+  #                  serves both states via the paragraph rule)
+  #   with_history — all later rounds (chosen when rounds were played before the
+  #                  current one; the NOTE step does not count the just-played round)
+
+  talk_open_prompt: |-    # step: open the chat (this agent speaks first, no feed yet)
+    {recent_rounds}
+
+    <game>Round {round} with {partner}: say hello and negotiate. Reply as JSON: {"message": "<text>", "finish": <true|false>}</game>
+  talk_prompt: |-         # step: reply in the chat
+    {recent_rounds}
+
+    <game>Round {round} with {partner}:</game>
+    {feed}
+    <game>Your turn. Reply as JSON: {"message": "<text>", "finish": <true|false>}</game>
+  decide_prompt:          # step: choose the number (the two-variant form shown here)
+    no_history: |-
+      <game>Round {round} with {partner}:</game>
+      {feed}
+      <game>The chat has been closed as {reason}. Choose the number. Reply as JSON: {"number": <0-9>}</game>
+    with_history: |-
+      <game>The history of your interactions:
+      {history_lines}</game>
+      <you>{notes}</you>
+
+      <game>Round {round} with {partner}:</game>
+      {feed}
+      <game>The chat has been closed as {reason}. Choose the number. Reply as JSON: {"number": <0-9>}</game>
+  predict_prompt: |-      # step: predict the co-player's number (prediction strategy only)
+    <game>Round {round} with {partner}:</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Predict the number your opponent will secretly choose. Reply as JSON: {"number": <0-9>}</game>
+  reflect_prompt: |-      # step: post-game reflection (reflection: true only)
+    <game>Round {round} with {partner}: {me} picked {my_number}, {partner} picked {partner_number}, you scored {payoff}. Reflect briefly. Reply as JSON: {"reflection": "<text>"}</game>
+  notes_prompt: |-        # step: rewrite the memory note (memory_notes_every > 0 only)
+    {recent_rounds}
+
+    <game>Time to update your memory note. Reply as JSON: {"note": "<your note>"}</game>
+
+  # ── Memory-rendering templates ─── how ONE past round expands inside fragments.
+  history_prompt: |-      # a not-yet-folded round in full (feeds {recent_rounds} / {history})
+    <game>Round {round} with {partner}:</game>
+    {feed}
+    <game>The chat has been closed as {reason}.</game>
+    <you>{my_number}</you>
+    <game>{partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}. Your total after round {round}: {total} points.</game>
+  # Extra placeholders available above: {my_rationale} {my_reflection}
+  # ({my_number_line} = the pre-wrapped legacy form of the response line).
+  history_line: Round {round}. {partner}. You scored {payoff} points.   # a folded round (feeds {history_lines})
+
+  # Legacy composition — how {history} / the prepended memory is built once a note
+  # exists: notes_view ({lines} / {notes_line} / {notes}) then notes_buffer ({buffer} =
+  # rounds since consolidation). The keys go together. New configs that lay fragments
+  # out in step prompts do not need them.
+  notes_view: |-
+    <game>Your notes so far:</game>
+    {lines}
+    {notes_line}
+  notes_buffer: |-
+    {buffer}
+
+  # Parse-retry corrections — appended to the message when the reply fails to parse
+  # (write each to match its step's JSON shape).
+  talk_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"message": "<text>", "finish": <true|false>}</game>
+  decide_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"number": <0-9>}</game>
+  predict_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"number": <0-9>}</game>
+  reflect_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"reflection": "<text>"}</game>
+  note_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"note": "<your note>"}</game>
+
+# ── Judge (JudgeCfg, optional) ───────────────────────────────────────────────
+# A separate LLM that reads the episode's public cheap-talk once, after the game,
+# and rules whether a reputation institution emerged. Omit the block to disable.
+# Excluded from config_hash — adding/removing it does not change the design family.
+judge:
+  provider:                              # same ProviderCfg shape as the agents'
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY
+    model: Qwen/Qwen2.5-72B-Instruct-Turbo
+  # prompt: ...        # override DEFAULT_JUDGE_PROMPT (must contain {transcript})
+  # correction: ...    # override the judge's parse-retry reminder
+
+# ── Schedule (optional per-round change-points) ──────────────────────────────
+# Sparse patches deep-merged onto the base config from from_round onward (sticky;
+# later change-points override earlier ones; lists are replaced, not merged).
+# Part of the design (config_hash). seed / max_concurrency / matchmaker kind are
+# whole-run frame and cannot be patched.
+schedule:
+  - from_round: 6
+    patch: {game: {max_talk_turns: 0}}   # from round 6 on: decision-only, no cheap talk

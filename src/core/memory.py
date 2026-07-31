@@ -41,29 +41,47 @@ class Memory:
         self.notes = notes
         self.noted_upto = len(self.entries)
 
+    def fragments(self, window: int | None, cfg: GameCfg | None = None) -> dict[str, str]:
+        """The memory materials a step prompt can lay out, one string per placeholder.
+
+        Keys mirror the step-prompt placeholders: `history_lines` — rounds already folded
+        into the note, one `history_line` each (empty when the template is unset);
+        `recent_rounds` — rounds not yet folded, rendered in full via `history_prompt`
+        (with notes off that is the whole past, the window applies); `notes` — the raw
+        note text; `notes_line` — the note rendered through `msg_self`.
+        """
+        cfg = cfg or _DEFAULT_GAME
+        folded = self.entries[: self.noted_upto]
+        recent = _window(self.entries[self.noted_upto:], window)
+        notes = self.notes or ""
+        return {
+            "history_lines": ("\n".join(_render_entry(e, cfg, cfg.history_line) for e in folded)
+                              if cfg.history_line else ""),
+            "recent_rounds": "\n".join(_render_entry(e, cfg) for e in recent),
+            "notes_line": cfg.msg_self.replace("{text}", notes) if notes else "",
+            "notes": notes,
+        }
+
     def render(self, window: int | None, cfg: GameCfg | None = None) -> list[Message]:
         # Past rounds are rendered as one game transcript (tags <game>/<you>/<name>);
         # templates come from cfg (or the defaults if no config was given).
         cfg = cfg or _DEFAULT_GAME
+        f = self.fragments(window, cfg)
         # Without notes — the plain transcript of past rounds (respecting the window).
         if self.notes is None:
-            entries = _window(self.entries, window)
-            if not entries:
-                return []
-            body = "\n".join(_render_entry(e, cfg) for e in entries)
-            return [Message("user", body)]
+            return [Message("user", f["recent_rounds"])] if f["recent_rounds"] else []
         # With notes: notes_view (the consolidated notes), then — only when rounds were played
         # since the last consolidation — the notes_buffer section with those rounds rendered raw
         # (instead of the full history). The window only limits the buffer.
+        # {lines} — the folded rounds' compact lines (dropped with its line when history_line is
+        # unset). Replaced first: the note text must not be rescanned for {lines}.
         # {notes_line} — the saved notes rendered THROUGH msg_self (the tag stays in sync with the
         # agent's own lines); {notes} — the raw text, for custom layouts.
-        buffer = _window(self.entries[self.noted_upto:], window)
-        parts = [cfg.notes_view
+        parts = [_fill(cfg.notes_view, "{lines}", f["history_lines"])
                  .replace("{notes_line}", cfg.msg_self.replace("{text}", self.notes))
                  .replace("{notes}", self.notes)]
-        if buffer:
-            rendered = "\n".join(_render_entry(e, cfg) for e in buffer)
-            parts.append(cfg.notes_buffer.replace("{buffer}", rendered))
+        if f["recent_rounds"]:
+            parts.append(cfg.notes_buffer.replace("{buffer}", f["recent_rounds"]))
         return [Message("user", "\n\n".join(parts))]
 
 
@@ -90,6 +108,13 @@ def render_turns(transcript: list[dict], me_id: str, msg_self: str, msg_partner:
     return "\n".join(lines)
 
 
+def _fill(template: str, placeholder: str, value: str) -> str:
+    """Substitute a placeholder; an empty value removes the placeholder's whole line."""
+    if value:
+        return template.replace(placeholder, value)
+    return template.replace(placeholder + "\n", "").replace(placeholder, "")
+
+
 def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]:
     if window is None:
         return entries
@@ -98,14 +123,15 @@ def _window(entries: list[MemoryEntry], window: int | None) -> list[MemoryEntry]
     return entries[-window:]
 
 
-def _render_entry(e: MemoryEntry, cfg: GameCfg) -> str:
-    # One past round = one full-round template (cfg.history_prompt) filled by placeholder. {feed}
-    # is the rendered cheap-talk of the round (same as the live prompts' {feed}; its whole line is
-    # dropped when the round had none); the rest are field substitutions. What the response/takeaway
-    # look like is baked into the experiment's own history_prompt, so the code does not branch here.
+def _render_entry(e: MemoryEntry, cfg: GameCfg, template: str | None = None) -> str:
+    # One past round = one full-round template (cfg.history_prompt by default; the compact
+    # cfg.history_line for rounds folded into notes) filled by placeholder. {feed} is the rendered
+    # cheap-talk of the round (same as the live prompts' {feed}; its whole line is dropped when
+    # the round had none); the rest are field substitutions. What the response/takeaway look like
+    # is baked into the experiment's own template, so the code does not branch here.
+    tmpl = template or cfg.history_prompt
     feed = render_turns(e.transcript, e.my_id, cfg.msg_self, cfg.msg_partner) if e.transcript else ""
-    body = (cfg.history_prompt.replace("{feed}", feed) if feed
-            else cfg.history_prompt.replace("{feed}\n", "").replace("{feed}", ""))
+    body = _fill(tmpl, "{feed}", feed)
     reason = cfg.reason_agreed if _both_agreed(e) else cfg.reason_limit
     return (
         body

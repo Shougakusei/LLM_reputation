@@ -130,8 +130,14 @@ validation, extend `_validate` in `src/core/config.py`. Table: `docs/development
 - The LLM input is assembled in `Agent.act` (`src/core/agent.py`): system =
   the agent's single `system_prompt` template taken **verbatim**, with only `{id}` and
   the payoff placeholders `{R}/{T}/{P}/{S}/{max_talk_turns}` substituted (the latter from
-  `Phase.game_cfg`). A single user message = memory diary + phase context (+ correction
-  appended on JSON parse retry, then `ActParseError` — the pairing is aborted).
+  `Phase.game_cfg`). A single user message: a step prompt is a string or a `PromptVariants`
+  pair (`no_history`/`with_history`, picked by rounds played before the current one; NOTE
+  excludes the just-played round; `no_history` optional). Memory fragments are substituted
+  in place — `{recent_rounds}` `{history_lines}` `{notes_line}` `{notes}` `{history}` — via
+  the paragraph rule: a blank-line-delimited paragraph whose fragments are all empty is
+  dropped whole, headers included. A plain string naming none gets the memory prepended
+  (legacy, for stored configs). (+ correction appended on JSON parse retry, then
+  `ActParseError` — the pairing is aborted.)
 - All phase prompts are static templates; only named placeholders are substituted.
   `PREDICT` mirrors `DECIDE`; there is one `decide_prompt` (no `_bare`) — the `rationale` flag
   only gates reading/storing the rationale (default off), not which template is sent.

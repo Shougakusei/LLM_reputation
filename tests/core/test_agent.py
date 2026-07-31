@@ -167,6 +167,13 @@ async def test_note_clean_json():
     assert len(p.calls) == 1
 
 
+async def test_note_accepts_singular_note_key():
+    # Configs may ask for {"note": ...}; the reply normalizes to the internal "notes" key.
+    p = ScriptedProvider(['{"note": "watch A5"}'])
+    r = await _agent(p).act(_note())
+    assert r.data == {"notes": "watch A5"}
+
+
 async def test_note_invalid_then_valid_retries_with_correction():
     p = ScriptedProvider(["nope", '{"notes": "ok"}'])
     r = await _agent(p).act(_note())
@@ -348,6 +355,146 @@ async def test_memory_diary_precedes_situation_in_one_message():
     assert "Round 2" in content and "A7" in content            # diary is present
     assert content.endswith("SITUATION")                       # situation is at the end
     assert content.index("Round 2") < content.index("SITUATION")   # diary precedes situation
+
+
+async def test_history_placeholder_substitutes_memory_in_place():
+    # A step prompt may place the memory itself via {history} — then nothing is prepended.
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.add(
+        MemoryEntry(
+            round=2, my_id="A1", partner_id="A7",
+            transcript=[{"speaker": "A7", "text": "take 5", "ready": True}],
+            my_number=6, my_rationale="", partner_number=5, outcome="DC",
+            payoff=5.0, partner_payoff=0.0,
+        )
+    )
+    await a.act(Phase(PhaseKind.DECIDE, "HEAD\n\n{history}\n\nSITUATION"))
+    content = p.calls[0][1][0].content
+    assert content.startswith("HEAD")                        # memory was NOT prepended
+    assert content.endswith("SITUATION")
+    assert "Round 2" in content and "{history}" not in content
+    assert content.index("HEAD") < content.index("Round 2") < content.index("SITUATION")
+
+
+async def test_history_placeholder_dropped_with_blank_line_when_memory_empty():
+    p = ScriptedProvider(['{"number": 0, "rationale": ""}'])
+    await _agent(p).act(Phase(PhaseKind.DECIDE, "{history}\n\nSITUATION"))
+    content = p.calls[0][1][0].content
+    assert content == "SITUATION"                            # no leading blank lines left
+
+
+async def test_history_placeholder_correction_still_appended_on_retry():
+    p = ScriptedProvider(["nope", '{"number": 1, "rationale": ""}'])
+    await _agent(p).act(Phase(PhaseKind.DECIDE, "{history}\n\nSITUATION"))
+    second = p.calls[1][1][-1].content
+    assert second.startswith("SITUATION")                    # placeholder handling unchanged
+    assert "ONLY valid JSON" in second                       # correction at the end
+
+
+def _dc_entry(round=2, partner="A7"):
+    return MemoryEntry(
+        round=round, my_id="A1", partner_id=partner,
+        transcript=[{"speaker": partner, "text": "take 5", "ready": True}],
+        my_number=6, my_rationale="", partner_number=5, outcome="DC",
+        payoff=5.0, partner_payoff=0.0,
+    )
+
+
+async def test_variant_no_history_used_when_no_past_rounds():
+    from src.core.config import PromptVariants
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    ctx = PromptVariants(no_history="FRESH", with_history="SEASONED {recent_rounds}")
+    await _agent(p).act(Phase(PhaseKind.DECIDE, ctx))
+    assert p.calls[0][1][0].content == "FRESH"
+
+
+async def test_variant_with_history_used_when_past_rounds_exist():
+    from src.core.config import PromptVariants
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.add(_dc_entry())
+    ctx = PromptVariants(no_history="FRESH", with_history="SEASONED\n\n{recent_rounds}\n\nEND")
+    await a.act(Phase(PhaseKind.DECIDE, ctx))
+    content = p.calls[0][1][0].content
+    assert content.startswith("SEASONED")                    # variant chosen, nothing prepended
+    assert "take 5" in content and content.endswith("END")
+
+
+async def test_note_phase_excludes_current_round_from_variant_choice():
+    # At NOTE time the just-played round is already in memory; it is not "past", so a lone
+    # entry still selects no_history (the round itself arrives via {recent_rounds}).
+    from src.core.config import PromptVariants
+    p = ScriptedProvider(['{"notes": "n"}', '{"notes": "n"}'])
+    a = _agent(p)
+    a.memory.add(_dc_entry(round=1))
+    ctx = PromptVariants(no_history="FIRST {recent_rounds}", with_history="LATER")
+    await a.act(Phase(PhaseKind.NOTE, ctx))
+    assert p.calls[0][1][0].content.startswith("FIRST")
+    assert "take 5" in p.calls[0][1][0].content
+    a.memory.add(_dc_entry(round=2))
+    await a.act(Phase(PhaseKind.NOTE, ctx))
+    assert p.calls[1][1][0].content == "LATER"               # a genuinely past round exists
+
+
+async def test_fragment_placeholders_substituted_in_step_prompt():
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    a = _agent(p)
+    cfg = GameCfg(history_line="R{round}:{partner}")
+    a.memory.add(_dc_entry(round=1, partner="A7"))
+    a.memory.set_notes("A7 betrays")
+    a.memory.add(_dc_entry(round=2, partner="A9"))
+    ctx = "L:{history_lines}|N:{notes_line}|R:{recent_rounds}|END"
+    await a.act(Phase(PhaseKind.DECIDE, ctx, game_cfg=cfg))
+    content = p.calls[0][1][0].content
+    assert "L:R1:A7|" in content                             # folded round -> one line
+    assert "N:<you>A7 betrays</you>|" in content             # the note through msg_self
+    assert "A9 chose 5" in content and content.endswith("END")   # buffered round in full
+    assert not content.startswith("<game>")                  # fragments used -> no prepend
+
+
+async def test_empty_fragment_collapses_with_its_blank_line():
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    await _agent(p).act(Phase(PhaseKind.DECIDE, "A\n\n{recent_rounds}\n\nB"))
+    assert p.calls[0][1][0].content == "A\n\nB"
+
+
+async def test_paragraph_with_only_empty_fragments_vanishes_with_its_headers():
+    # A paragraph (blank-line-delimited group) whose fragments ALL render empty is dropped
+    # whole — headers inside it included. That is what derives no_history from with_history.
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    ctx = ("HEAD\n\n"
+           "<game>The history of your interactions:\n{history_lines}</game>\n"
+           "<game>Your memory note:</game>\n{notes_line}\n\n"
+           "{recent_rounds}\n\n"
+           "LIVE")
+    await _agent(p).act(Phase(PhaseKind.DECIDE, ctx))
+    assert p.calls[0][1][0].content == "HEAD\n\nLIVE"
+
+
+async def test_paragraph_with_a_nonempty_fragment_stays_and_drops_empty_lines():
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}'])
+    a = _agent(p)
+    a.memory.add(_dc_entry())
+    ctx = "T:\n{history_lines}\n{recent_rounds}\n\nEND"   # lines empty, recent non-empty
+    await a.act(Phase(PhaseKind.DECIDE, ctx))
+    content = p.calls[0][1][0].content
+    assert content.startswith("T:\n")                    # header kept: paragraph not empty
+    assert "take 5" in content and "{history_lines}" not in content
+
+
+async def test_variant_without_no_history_falls_back_to_with_history():
+    # no_history omitted -> with_history serves both states; empty-memory sections vanish
+    # by the paragraph rule.
+    from src.core.config import PromptVariants
+    p = ScriptedProvider(['{"number": 1, "rationale": ""}', '{"number": 2, "rationale": ""}'])
+    ctx = PromptVariants(with_history="T\n\nH:\n{recent_rounds}\n\nEND")
+    a = _agent(p)
+    await a.act(Phase(PhaseKind.DECIDE, ctx))
+    assert p.calls[0][1][0].content == "T\n\nEND"        # round 1: section wiped
+    a.memory.add(_dc_entry())
+    await a.act(Phase(PhaseKind.DECIDE, ctx))
+    assert "take 5" in p.calls[1][1][0].content          # later: section shown
 
 
 def _trace_records(caplog):

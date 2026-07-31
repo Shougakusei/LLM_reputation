@@ -95,10 +95,10 @@ class ReputationPD:
             # captured L2 log isn't lost and makes it into the aborted pairing.
             na = nb = None
             if self._notes_due(a):
-                na, una, cna = await self._make_notes(a, round)
+                na, una, cna = await self._make_notes(a, b.id, round)
                 post_calls += list(cna); usages.append(una)
             if self._notes_due(b):
-                nb, unb, cnb = await self._make_notes(b, round)
+                nb, unb, cnb = await self._make_notes(b, a.id, round)
                 post_calls += list(cnb); usages.append(unb)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=public,
@@ -150,7 +150,8 @@ class ReputationPD:
         every = self.cfg.memory_notes_every
         return bool(every) and len(agent.memory.entries) % every == 0
 
-    async def _make_notes(self, agent: Agent, round: int) -> tuple[str, tuple[int, int], tuple]:
+    async def _make_notes(self, agent: Agent, partner_id: str,
+                          round: int) -> tuple[str, tuple[int, int], tuple]:
         """Consolidate the agent's memory into personal notes (NOTE phase) and store them in agent.memory.
 
         The agent sees its whole memory (old notes + buffer of new rounds) as history in
@@ -160,12 +161,13 @@ class ReputationPD:
 
         Args:
             agent: The agent consolidating its memory.
+            partner_id: The co-player of the round that triggered the consolidation.
             round: Round number (for {round} in the template).
 
         Returns:
             A triple (notes text, request usage, raw NOTE-phase LLMCall's).
         """
-        ctx = notes_context(self.cfg, round, score=agent.score)
+        ctx = notes_context(self.cfg, round, score=agent.score, partner=partner_id)
         res = await agent.act(Phase(PhaseKind.NOTE, ctx, game_cfg=self.cfg))
         agent.memory.set_notes(res.data["notes"])
         return res.data["notes"], res.usage, res.calls

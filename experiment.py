@@ -40,8 +40,8 @@ from src.runner import resume_run, run
 
 load_dotenv()                       # pick up API keys from .env (e.g. TOGETHER_API_KEY)
 
-DB = "experiment.db"                 # one DB, many runs; appended to on every run
-DEFAULT_CONFIG = "config/experiment.yaml"
+DB = "db/experiment.db"                 # one DB, many runs; appended to on every run
+DEFAULT_CONFIG = "config/research_notes.yaml"
 
 # --- LLM judge (optional) ------------------------------------------------------
 # A separate model that, at the end of the episode, decides whether the reputation

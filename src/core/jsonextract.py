@@ -28,7 +28,9 @@ def extract_json_obj(text: str) -> dict | None:
         candidates.append(block)
     for candidate in candidates:
         try:
-            obj = json.loads(candidate)
+            # strict=False: allow raw control characters (newlines) inside strings —
+            # models write multi-line notes without escaping them.
+            obj = json.loads(candidate, strict=False)
         except ValueError:
             continue
         if isinstance(obj, dict):

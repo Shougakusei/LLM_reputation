@@ -18,14 +18,17 @@ population:
     You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
 
     How each round works:
-    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both decide to close the chat or {max_talk_turns} messages have been sent in total.
     - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+    - At the end of the round the game asks you to update your memory note.
 
     Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
-    - Equal numbers: you each score {R}.
-    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
-    - Your co-player's number is exactly one higher than yours: it scores {T}, you - {S}.
-    - Any other case: you each score {P}.
+    - Equal numbers: you each score {R} points.
+    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T} points, it - {S}.
+    - Your co-player's number is exactly one higher than yours: it scores {T} points, you - {S}.
+    - Any other case: you each score {P} point.
+
+    Due to the limited capacity of your context window, a memory-note mechanic is in place: all that remains of past rounds is the history of your interactions (who you played with and what you scored) and your latest note, so keep everything important in it.
 
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
@@ -36,18 +39,21 @@ population:
     You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
 
     How each round works:
-    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both decide to close the chat or {max_talk_turns} messages have been sent in total.
     - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+    - At the end of the round the game asks you to update your memory note.
 
     Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
-    - Equal numbers: you each score {R}.
-    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
-    - Your co-player's number is exactly one higher than yours: it scores {T}, you - {S}.
-    - Any other case: you each score {P}.
+    - Equal numbers: you each score {R} points.
+    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T} points, it - {S}.
+    - Your co-player's number is exactly one higher than yours: it scores {T} points, you - {S}.
+    - Any other case: you each score {P} point.
+
+    Due to the limited capacity of your context window, a memory-note mechanic is in place: all that remains of past rounds is the history of your interactions (who you played with and what you scored) and your latest note, so keep everything important in it.
 
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
-    You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is one higher than you expect from your co-player.
+    You have a specific role in this game that is needed to test other players' behavior: you always have to defect. Never reveal your role to others; behave as a normal player. Defecting means choosing the number exactly one higher than the one you expect from your co-player, on the 0–9 cycle: if you expect 4, choose 5; if you expect 9, choose 0.
   agents:
     - {count: 8, play_strategy: 'direct', system_prompt: *system_default}
     - {count: 2, play_strategy: 'direct', system_prompt: *system_defect}
@@ -55,10 +61,12 @@ population:
     base_url: https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY
     model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8   # placeholder: research.py overrides per model (see MODELS)
+    # base_url: http://localhost:11434/v1
+    # model: llama3.1:8b
     temperature: 0.7
-    max_tokens: 2000
+    max_tokens: 50000
     timeout_s: 300
-    reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
+    # reasoning: false      # Non-think: send {"reasoning": {"enabled": false}} to reasoning models (DeepSeek-V4-Pro);
                           # non-reasoning models ignore the field. reasoning_effort (high/max) — not set.
   kind: roster
   first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394]
@@ -75,44 +83,109 @@ game:
   msg_self: <you>{text}</you>
   msg_partner: <{partner}>{text}</{partner}>
 
-  reason_limit: the messages number limit has been reached
+  reason_limit: the message limit has been reached
   reason_agreed: both players agreed to stop
 
-  talk_open_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  talk_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened.</game>
-    {feed}
-    <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
-  talk_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}
+  history_line: Round {round}. {partner}. You scored {payoff} points.
 
-  decide_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened.</game>
-    {feed}
-    <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
+  # A paragraph whose fragments are all empty vanishes whole (headers included), so the
+  # memory head disappears by itself on the agent's first round.
+
+  # Memory fragments:
+  #   {history_lines}  rounds already folded into the note, one history_line each
+  #   {notes}          the agent's memory note (raw text; write tags yourself: <you>{notes}</you>); {notes_line} = pre-wrapped legacy form
+  #   {recent_rounds}  rounds not yet folded, in full (at every: 1 — only the NOTE step's just-played round)
+  talk_open_prompt:
+    no_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      The game starts, the chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+    with_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      Your total score: {score} points.
+
+      The history of your interactions:
+      {history_lines}
+
+      Your last memory note:</game>
+      <you>{notes}</you>
+
+      <game>The game starts, the chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  talk_prompt:
+    no_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      The game starts, the chat has been opened.</game>
+      {feed}
+      <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+    with_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      Your total score: {score} points.
+
+      The history of your interactions:
+      {history_lines}
+
+      Your last memory note:</game>
+      <you>{notes}</you>
+
+      <game>The game starts, the chat has been opened.</game>
+      {feed}
+      <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  talk_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}</game>
+
+  decide_prompt:
+    no_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      The game starts, the chat has been opened.</game>
+      {feed}
+      <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
+    with_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      Your total score: {score} points.
+
+      The history of your interactions:
+      {history_lines}
+
+      Your last memory note:</game>
+      <you>{notes}</you>
+
+      <game>The game starts, the chat has been opened.</game>
+      {feed}
+      <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
   decide_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"number": <0-9>}
+    <game>Respond with ONLY valid JSON, nothing else: {"number": <0-9>}</game>
 
   history_prompt: |-
-    <game>Round {round} with {partner}:
-    The chat has been opened.</game>
+    <game>The game starts, the chat has been opened.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number.</game>
-    {my_number_line}
+    <you>{my_number}</you>
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>
 
-  notes_view: |-
-    <game>Your notes from earlier rounds:</game>
-    {notes_line}
-  notes_buffer: |-
-    <game>Your rounds since those notes:</game>
-    {buffer}
-  notes_prompt: |-
-    <game>All that history is being compressed into your notes. Write down every detail that will help you in future rounds. Please write your notes in the following JSON format: {"notes": "<your notes>"}</game>
+  notes_prompt:
+    no_history: |-
+      <game>Now it's round {round} with {partner}.</game>
+
+      {recent_rounds}
+
+      <game>Time to update your memory note. Please write a new version in the following JSON format: {"note": "<your note>"}</game>
+    with_history: |-
+      <game>Now it's round {round} with {partner}.
+
+      The history of your interactions:
+      {history_lines}
+
+      Your last memory note:</game>
+      <you>{notes}</you>
+
+      {recent_rounds}
+
+      <game>Time to update your memory note. Please write a new version in the following JSON format: {"note": "<your note>"}</game>
   note_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"notes": "<your notes>"}
+    <game>Respond with ONLY valid JSON, nothing else: {"note": "<your note>"}</game>
