@@ -104,6 +104,29 @@ def test_bounds_force_types_until_satisfied():
     assert all(a.setup.system_prompt == "defect {id}" for a in decept)
 
 
+def test_forced_branches_consume_no_type_random():
+    """Exact-count oracle: forced type branches must not consume rng.random().
+
+    With decept_min=decept_max=2, full turnover (death_prob=1.0), all 4 replacements
+    are forced (d<2 -> True, d>=2 -> False), so zero rng.random() calls for type.
+    FakeRng with precisely-sized randoms list will raise IndexError if any forced
+    branch accidentally calls rng.random(), protecting against regression that would
+    silently desync the RNG stream and break resume determinism (Tasks 4–7).
+    """
+    cfg = _pop_cfg(death_prob=1.0, decept_min=2, decept_max=2)
+    pop = _build(cfg)
+    # Exact draw count: 4 randoms (deaths, all < 1.0) + 0 (no type draws, all forced) + 4 ranges (names)
+    # If any forced branch consumes rng.random(), pop(0) raises IndexError
+    rng = FakeRng(randoms=[0.5, 0.5, 0.5, 0.5], ranges=[0, 1, 2, 3])
+    events = evolve(pop, cfg, rng, round=2)
+
+    deaths = [e for e in events if e["type"] == "death"]
+    births = [e for e in events if e["type"] == "birth"]
+    assert len(deaths) == 4 and len(births) == 4
+    decept_births = [b for b in births if b["deceptive"]]
+    assert len(decept_births) == 2  # d<2 twice, then d>=2 twice
+
+
 def test_newborn_names_are_unused_pool_names():
     cfg = _pop_cfg(death_prob=1.0)
     pop = _build(cfg)
