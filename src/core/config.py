@@ -320,6 +320,21 @@ class AgentSpec:
     # The agent's full system prompt (ONE string). There's no longer a separate persona/identity_prompt/rules — it's all here.
     # {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns} are substituted; usually set via a YAML anchor.
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    deceptive: bool = False          # marks the spec whose agents count as deceptive for evolution
+
+
+@dataclass(frozen=True)
+class EvolutionCfg:
+    """Population turnover: per-round death and replacement (see docs/configuration.md).
+
+    At the start of each round r >= 2 every agent dies with probability `death_prob` and is
+    replaced by a fresh agent; the replacement is deceptive with probability d/N (d = current
+    live deceptive count, N = population size), forced deceptive while d < decept_min and
+    forced normal while d >= decept_max."""
+
+    death_prob: float
+    decept_min: int
+    decept_max: int
 
 
 @dataclass(frozen=True)
@@ -333,6 +348,7 @@ class PopulationCfg:
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
     last_name_pool: list[str] = field(default_factory=list)
+    evolution: EvolutionCfg | None = None   # None = no death/replacement (default)
 
 
 @dataclass(frozen=True)
@@ -396,11 +412,13 @@ def _judge_cfg(d: dict) -> JudgeCfg:
 
 
 def _population_cfg(d: dict) -> PopulationCfg:
+    evolution = EvolutionCfg(**d["evolution"]) if d.get("evolution") else None
     agents = [
         AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
                   prediction_mapping=a.get("prediction_mapping", "match"),
-                  system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
+                  system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT),
+                  deceptive=a.get("deceptive", False) if evolution is not None else False)
         for a in d["agents"]
     ]
     return PopulationCfg(
@@ -409,6 +427,7 @@ def _population_cfg(d: dict) -> PopulationCfg:
         provider=_provider_cfg(d["provider"]),
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
+        evolution=evolution,
     )
 
 
@@ -481,6 +500,39 @@ def _validate(d: dict) -> None:
             raise ValueError(f"{key} contains duplicate names")
         if len(pool) < total:
             raise ValueError(f"{key} (size {len(pool)}) is smaller than the agent count ({total})")
+
+    evolution = pop.get("evolution")
+    if evolution is not None:
+        p = evolution.get("death_prob")
+        if not isinstance(p, (int, float)) or isinstance(p, bool) or not (0 <= p <= 1):
+            raise ValueError(f"evolution.death_prob must be a number in [0, 1], got: {p!r}")
+        lo, hi = evolution.get("decept_min"), evolution.get("decept_max")
+        for key, v in (("decept_min", lo), ("decept_max", hi)):
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                raise ValueError(f"evolution.{key} must be an integer >= 0, got: {v!r}")
+        if not (lo <= hi <= total):
+            raise ValueError(
+                f"evolution requires decept_min <= decept_max <= agent count, "
+                f"got: {lo} <= {hi} <= {total}")
+        specs = pop["agents"]
+        if not any(a.get("deceptive") for a in specs) or all(a.get("deceptive") for a in specs):
+            raise ValueError(
+                "evolution requires at least one deceptive and one non-deceptive agent spec")
+        n_decept = sum(a.get("count", 1) for a in specs if a.get("deceptive"))
+        if not (lo <= n_decept <= hi):
+            raise ValueError(
+                f"initial deceptive count ({n_decept}) is outside "
+                f"[decept_min, decept_max] = [{lo}, {hi}]")
+        pools = [pop.get(k, []) for k in ("first_name_pool", "last_name_pool")]
+        if not any(pools):
+            raise ValueError(
+                "evolution requires a name pool: replacements need fresh names "
+                "(the A1..An fallback is not supported)")
+        for key, pool_names in zip(("first_name_pool", "last_name_pool"), pools):
+            if pool_names and len(pool_names) <= total:
+                raise ValueError(
+                    f"evolution requires {key} strictly larger than the agent count "
+                    f"({total}) — replacements draw unused names from it")
 
     # Early (fail-fast) validation of every schedule phase: sticky patch points are folded in
     # order, and EACH folded config must also be valid — otherwise the error would only surface

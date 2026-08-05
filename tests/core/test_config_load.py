@@ -4,7 +4,7 @@ import textwrap
 
 import pytest
 
-from src.core.config import EpisodeCfg, GameCfg, load_episode
+from src.core.config import EpisodeCfg, EvolutionCfg, GameCfg, episode_from_dict, load_episode
 
 # Canonical example config for load tests — written to tmp by the `example` fixture
 # (previously config/example.yaml was loaded here; the file was removed, tests no longer depend on it).
@@ -781,3 +781,82 @@ def test_valid_base_with_valid_patches_loads(tmp_path):
     ).replace("\n", "\n        "))
     cfg = load_episode(path)
     assert cfg.schedule[0].patch == {"idle_payoff": 2.0}
+
+
+def _evo_dict(evolution=None, agents=None, first_pool=None):
+    """Minimal valid episode dict; evolution/agents/pool are override points."""
+    d = {
+        "seed": 1, "rounds": 3, "matchmaker": "random",
+        "population": {
+            "kind": "roster",
+            "agents": agents if agents is not None else [
+                {"count": 3, "system_prompt": "normal {id}"},
+                {"count": 1, "system_prompt": "defect {id}", "deceptive": True},
+            ],
+            "provider": {"base_url": "http://x/v1", "model": "m"},
+        },
+    }
+    if first_pool is not None:
+        d["population"]["first_name_pool"] = first_pool
+    if evolution is not None:
+        d["population"]["evolution"] = evolution
+    return d
+
+
+def test_evolution_block_parses_into_cfg():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 1, "decept_max": 3},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert cfg.population.evolution == EvolutionCfg(death_prob=0.1, decept_min=1, decept_max=3)
+    assert [s.deceptive for s in cfg.population.agents] == [False, True]
+
+
+def test_evolution_absent_means_none_and_deceptive_defaults_false():
+    cfg = episode_from_dict(_evo_dict())
+    assert cfg.population.evolution is None
+    assert all(s.deceptive is False for s in cfg.population.agents)
+
+
+def test_evolution_survives_asdict_roundtrip():
+    from dataclasses import asdict
+    d = _evo_dict(evolution={"death_prob": 0.5, "decept_min": 0, "decept_max": 4},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    again = episode_from_dict(asdict(cfg))
+    assert again.population.evolution == cfg.population.evolution
+    assert [s.deceptive for s in again.population.agents] == [False, True]
+
+
+@pytest.mark.parametrize("evolution, message", [
+    ({"death_prob": 1.5, "decept_min": 0, "decept_max": 4}, "death_prob"),
+    ({"death_prob": -0.1, "decept_min": 0, "decept_max": 4}, "death_prob"),
+    ({"death_prob": 0.1, "decept_min": 3, "decept_max": 2}, "decept_min <= decept_max"),
+    ({"death_prob": 0.1, "decept_min": 0, "decept_max": 9}, "decept_min <= decept_max"),
+    ({"death_prob": 0.1, "decept_min": 2, "decept_max": 4}, "initial deceptive count"),
+])
+def test_evolution_validation_rejects_bad_values(evolution, message):
+    d = _evo_dict(evolution=evolution, first_pool=[f"P{i}" for i in range(10)])
+    with pytest.raises(ValueError, match=message):
+        episode_from_dict(d)
+
+
+def test_evolution_requires_both_spec_kinds():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 0, "decept_max": 4},
+                  agents=[{"count": 4, "system_prompt": "normal {id}"}],
+                  first_pool=[f"P{i}" for i in range(10)])
+    with pytest.raises(ValueError, match="deceptive"):
+        episode_from_dict(d)
+
+
+def test_evolution_requires_oversized_name_pool():
+    # pool of exactly 4 names for 4 agents -> no headroom for replacements
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 0, "decept_max": 4},
+                  first_pool=[f"P{i}" for i in range(4)])
+    with pytest.raises(ValueError, match="strictly larger"):
+        episode_from_dict(d)
+
+
+def test_evolution_requires_a_name_pool():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 0, "decept_max": 4})
+    with pytest.raises(ValueError, match="name pool"):
+        episode_from_dict(d)
