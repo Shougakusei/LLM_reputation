@@ -860,3 +860,51 @@ def test_evolution_requires_a_name_pool():
     d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 0, "decept_max": 4})
     with pytest.raises(ValueError, match="name pool"):
         episode_from_dict(d)
+
+
+def test_invincible_flag_parses_per_spec():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 1, "decept_max": 3},
+                  agents=[
+                      {"count": 2, "system_prompt": "normal {id}"},
+                      {"count": 1, "system_prompt": "normal inv {id}", "invincible": True},
+                      {"count": 1, "system_prompt": "defect {id}", "deceptive": True,
+                       "invincible": True},
+                  ],
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert [s.invincible for s in cfg.population.agents] == [False, True, True]
+
+
+def test_invincible_normalized_false_without_evolution():
+    d = _evo_dict(agents=[
+        {"count": 3, "system_prompt": "normal {id}"},
+        {"count": 1, "system_prompt": "defect {id}", "deceptive": True, "invincible": True},
+    ])
+    cfg = episode_from_dict(d)
+    assert all(s.invincible is False for s in cfg.population.agents)
+
+
+def test_invincible_survives_asdict_roundtrip():
+    from dataclasses import asdict
+    d = _evo_dict(evolution={"death_prob": 0.5, "decept_min": 0, "decept_max": 4},
+                  agents=[
+                      {"count": 3, "system_prompt": "normal {id}"},
+                      {"count": 1, "system_prompt": "defect {id}", "deceptive": True,
+                       "invincible": True},
+                  ],
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    again = episode_from_dict(asdict(cfg))
+    assert [s.invincible for s in again.population.agents] == [False, True]
+
+
+def test_evolution_rejects_all_invincible_population():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 1, "decept_max": 3},
+                  agents=[
+                      {"count": 3, "system_prompt": "normal {id}", "invincible": True},
+                      {"count": 1, "system_prompt": "defect {id}", "deceptive": True,
+                       "invincible": True},
+                  ],
+                  first_pool=[f"P{i}" for i in range(10)])
+    with pytest.raises(ValueError, match="mortal"):
+        episode_from_dict(d)

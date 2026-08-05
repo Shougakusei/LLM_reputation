@@ -321,6 +321,7 @@ class AgentSpec:
     # {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns} are substituted; usually set via a YAML anchor.
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     deceptive: bool = False          # marks the spec whose agents count as deceptive for evolution
+    invincible: bool = False         # evolution: this agent never dies (draw consumed, ignored)
 
 
 @dataclass(frozen=True)
@@ -418,7 +419,8 @@ def _population_cfg(d: dict) -> PopulationCfg:
                   play_strategy=a.get("play_strategy", "direct"),
                   prediction_mapping=a.get("prediction_mapping", "match"),
                   system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT),
-                  deceptive=a.get("deceptive", False) if evolution is not None else False)
+                  deceptive=a.get("deceptive", False) if evolution is not None else False,
+                  invincible=a.get("invincible", False) if evolution is not None else False)
         for a in d["agents"]
     ]
     return PopulationCfg(
@@ -523,6 +525,9 @@ def _validate(d: dict) -> None:
             raise ValueError(
                 f"initial deceptive count ({n_decept}) is outside "
                 f"[decept_min, decept_max] = [{lo}, {hi}]")
+        if all(a.get("invincible") for a in specs):
+            raise ValueError(
+                "evolution requires at least one mortal (non-invincible) agent")
         pools = [pop.get(k, []) for k in ("first_name_pool", "last_name_pool")]
         if not any(pools):
             raise ValueError(
