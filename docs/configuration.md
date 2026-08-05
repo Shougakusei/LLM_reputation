@@ -207,8 +207,8 @@ Agent ids come from the name pools in one of three modes:
 ### Population evolution (death & replacement)
 
 An optional `evolution:` block under `population` turns on per-round agent turnover:
-every round, each live agent may die and is replaced by a fresh one cloned from one of
-the two agent specs. Absent (the default) — no behavior change.
+every round, each live agent may die and is replaced by a fresh one cloned from a
+matching agent spec. Absent (the default) — no behavior change.
 
 ```yaml
 population:
