@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS agents (
     system_prompt TEXT,
     provider      TEXT NOT NULL,
     final_score   REAL,
+    born_round    INTEGER NOT NULL DEFAULT 1,
+    died_round    INTEGER,
+    deceptive     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, agent_id),
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
@@ -144,3 +147,11 @@ CREATE INDEX IF NOT EXISTS ix_runs_config_hash ON runs(config_hash);
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # Additive migration for databases created before the evolution columns existed.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+    for name, ddl in (("born_round", "INTEGER NOT NULL DEFAULT 1"),
+                      ("died_round", "INTEGER"),
+                      ("deceptive", "INTEGER NOT NULL DEFAULT 0")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE agents ADD COLUMN {name} {ddl}")
+    conn.commit()

@@ -94,9 +94,10 @@ class Storage:
             run_id = cur.lastrowid
             self._run_id = run_id
             self._conn.executemany(
-                "INSERT INTO agents(run_id, agent_id, system_prompt, provider) VALUES (?,?,?,?)",
+                "INSERT INTO agents(run_id, agent_id, system_prompt, provider, deceptive) VALUES (?,?,?,?,?)",
                 [
-                    (run_id, a.id, a.setup.system_prompt, json.dumps(asdict(a.setup.provider_cfg)))
+                    (run_id, a.id, a.setup.system_prompt,
+                     json.dumps(asdict(a.setup.provider_cfg)), int(a.setup.deceptive))
                     for a in pop
                 ],
             )
@@ -248,6 +249,20 @@ class Storage:
             self._conn.execute(
                 "INSERT INTO rounds(run_id, round_idx) VALUES (?,?)", (rid, round)
             )
+            # Persist evolution events (deaths and births) at round start.
+            for e in plan.events:
+                if e.get("type") == "death":
+                    self._conn.execute(
+                        "UPDATE agents SET died_round=?, final_score=? "
+                        "WHERE run_id=? AND agent_id=?",
+                        (round, e.get("score"), rid, e["agent"]))
+                elif e.get("type") == "birth":
+                    self._conn.execute(
+                        "INSERT INTO agents(run_id, agent_id, system_prompt, provider, "
+                        "born_round, deceptive) VALUES (?,?,?,?,?,?)",
+                        (rid, e["agent"], e.get("system_prompt"),
+                         json.dumps(e.get("provider")), round,
+                         int(bool(e.get("deceptive")))))
             self._conn.executemany(
                 "INSERT INTO idle(run_id, round_idx, agent_id) VALUES (?,?,?)",
                 [(rid, round, aid) for aid in plan.idle],

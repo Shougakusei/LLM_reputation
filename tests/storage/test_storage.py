@@ -483,3 +483,87 @@ def test_save_verdict_roundtrip(tmp_path):
         assert row[4]                                  # created_at is filled in
     finally:
         st.close()
+
+
+# ---- Slice: evolution events (born_round, died_round, deceptive) ----
+
+class _EvoStubProvider:
+    """Stub provider that refuses to complete (storage tests must not call LLM)."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    async def complete(self, **kw):
+        raise AssertionError("storage tests must not call the LLM")
+
+    async def aclose(self):
+        pass
+
+
+@pytest.fixture
+def _evo_stub_providers(monkeypatch):
+    """Replace make_provider with a stub that rejects LLM calls."""
+    monkeypatch.setattr(popbase, "make_provider", lambda cfg: _EvoStubProvider(cfg))
+
+
+def _evo_storage_cfg():
+    """Test config with one normal and one deceptive agent."""
+    return EpisodeCfg(
+        seed=0, rounds=2, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=1, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m")),
+        game=GameCfg(max_talk_turns=0))
+
+
+def test_begin_records_deceptive_flag(tmp_path, _evo_stub_providers):
+    """Verify deceptive flag is stored on insert."""
+    st = Storage(str(tmp_path / "t.db"))
+    cfg = _evo_storage_cfg()
+    pop = make_population(cfg.population).build(random.Random(0))
+    rid = st.begin(cfg, pop)
+    rows = dict(st.conn.execute(
+        "SELECT agent_id, deceptive FROM agents WHERE run_id=?", (rid,)))
+    assert rows == {"A1": 0, "A2": 1}
+    st.close()
+
+
+def test_observe_persists_evolution_events(tmp_path, _evo_stub_providers):
+    """Verify death and birth events are persisted in observe."""
+    st = Storage(str(tmp_path / "t.db"))
+    cfg = _evo_storage_cfg()
+    pop = make_population(cfg.population).build(random.Random(0))
+    rid = st.begin(cfg, pop)
+    plan = RoundPlan(pairings=[], idle=[], events=[
+        {"type": "death", "agent": "A1", "score": 5.0},
+        {"type": "birth", "agent": "Player 9", "deceptive": True,
+         "system_prompt": "defect {id}",
+         "provider": {"base_url": "http://x/v1", "model": "m"}},
+    ])
+    st.observe(2, plan, [])
+    assert st.conn.execute(
+        "SELECT died_round, final_score FROM agents WHERE run_id=? AND agent_id='A1'",
+        (rid,)).fetchone() == (2, 5.0)
+    assert st.conn.execute(
+        "SELECT born_round, deceptive, system_prompt FROM agents "
+        "WHERE run_id=? AND agent_id='Player 9'", (rid,)).fetchone() == (2, 1, "defect {id}")
+    st.close()
+
+
+def test_migration_adds_evolution_columns_to_old_db(tmp_path):
+    """Verify migration adds new columns to databases created before evolution feature."""
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """CREATE TABLE agents (
+               run_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
+               system_prompt TEXT, provider TEXT NOT NULL, final_score REAL,
+               PRIMARY KEY (run_id, agent_id))""")
+    conn.commit()
+    conn.close()
+    st = Storage(path)
+    cols = {row[1] for row in st.conn.execute("PRAGMA table_info(agents)")}
+    assert {"born_round", "died_round", "deceptive"} <= cols
+    st.close()
