@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import random
 import sqlite3
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import pytest
 
 from src.core import orchestrator as orch
 from src.core.agent import LLMCall
-from src.core.config import AgentSpec, EpisodeCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg
+from src.core.config import (
+    AgentSpec, EpisodeCfg, EvolutionCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg,
+)
 from src.judge import JudgeVerdict, MessageRef
 from src.games.base import PairingRecord
 from src.matchmaking.base import RoundPlan
@@ -17,6 +19,7 @@ from src.population import base as popbase
 from src.population import make_population
 from src.providers.base import Completion, HttpAttempt
 from src.storage import Storage
+from src.storage.store import _hash_config_dict
 
 
 class FixedProvider:
@@ -450,6 +453,40 @@ def test_config_hash_changes_with_schedule(tmp_path):
         assert h[id_sched] == h[id_long]       # rounds is still outside the hash (same family)
     finally:
         st.close()
+
+
+def test_hash_config_dict_strips_default_evolution_and_deceptive_noise():
+    # An evolution-free config now carries `population.evolution: None` and
+    # `deceptive: False` on every agent spec (new defaults). Those keys must not
+    # perturb the hash of pre-branch configs that never had them at all.
+    cfg = _cfg(seed=1)
+    d = asdict(cfg)
+    assert d["population"]["evolution"] is None
+    assert all(a["deceptive"] is False for a in d["population"]["agents"])
+
+    stripped = json.loads(json.dumps(d))       # deep copy via round-trip
+    stripped["population"].pop("evolution")
+    for a in stripped["population"]["agents"]:
+        a.pop("deceptive")
+
+    assert _hash_config_dict(d) == _hash_config_dict(stripped)
+
+
+def test_hash_config_dict_keeps_evolution_when_enabled(tmp_path):
+    # Evolution-enabled configs are new designs — their own hash must reflect that,
+    # and must differ from the otherwise-identical evolution-free twin.
+    base = _cfg(seed=1)
+    evo_pop = replace(
+        base.population,
+        agents=[AgentSpec(count=2), AgentSpec(count=1, deceptive=True)],
+        first_name_pool=["Alice", "Bob", "Carol"],
+        evolution=EvolutionCfg(death_prob=0.1, decept_min=0, decept_max=1),
+    )
+    evo_cfg = replace(base, population=evo_pop)
+
+    h_no_evo = _hash_config_dict(asdict(base))
+    h_evo = _hash_config_dict(asdict(evo_cfg))
+    assert h_evo != h_no_evo
 
 
 def test_judge_config_still_persisted_in_runs(tmp_path):

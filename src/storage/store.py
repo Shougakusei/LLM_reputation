@@ -39,10 +39,29 @@ def _hash_config_dict(d: dict) -> str:
     rng, round r is identical regardless of the total length, so "20 rounds" is just "10
     rounds" played further; the round count is "how far the simulation got", not part of the
     design's identity. Hence a run, its repeats, and its extensions of different lengths
-    share one config_hash (one "family")."""
+    share one config_hash (one "family").
+
+    Also normalizes away the population-evolution feature's default-valued keys
+    (`population.evolution: None` and `deceptive: False` on each agent spec) so that
+    evolution-free configs keep the same config_hash they had before evolution existed.
+    Evolution-enabled configs keep both keys — that's a genuinely new design."""
     d = dict(d)
     d.pop("judge", None)
     d.pop("rounds", None)
+    population = d.get("population")
+    if isinstance(population, dict):
+        population = dict(population)
+        if population.get("evolution") is None:
+            population.pop("evolution", None)
+        agents = population.get("agents")
+        if isinstance(agents, list):
+            new_agents = []
+            for a in agents:
+                if isinstance(a, dict) and not a.get("deceptive"):
+                    a = {k: v for k, v in a.items() if k != "deceptive"}
+                new_agents.append(a)
+            population["agents"] = new_agents
+        d["population"] = population
     canon = json.dumps(d, sort_keys=True)               # stable across processes
     return hashlib.sha256(canon.encode()).hexdigest()[:16]
 

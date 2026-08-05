@@ -20,6 +20,11 @@ orchestrator's `observer` callback (see [architecture.md](./architecture.md)).
   continued. `judge` is excluded so toggling the judge never changes the family.
 - `replay.py` accepts **either** an integer `run_id` or a `config_hash` (the latter resolves
   to the earliest run of that family).
+- The hash also strips the population-evolution feature's default-valued keys
+  (`population.evolution: None`, and `deceptive: False` on each agent spec) before hashing,
+  so evolution-free configs keep the exact `config_hash` they had before the feature
+  existed. Evolution-enabled configs keep both keys — that's a genuinely new design, and
+  gets its own hash.
 - `runs.finished_at` NULL = the run crashed/aborted mid-episode (a resume marker).
 
 ## Tables
