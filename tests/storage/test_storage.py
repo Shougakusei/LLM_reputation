@@ -604,3 +604,71 @@ def test_migration_adds_evolution_columns_to_old_db(tmp_path):
     cols = {row[1] for row in st.conn.execute("PRAGMA table_info(agents)")}
     assert {"born_round", "died_round", "deceptive"} <= cols
     st.close()
+
+
+def _inv_storage_cfg():
+    return EpisodeCfg(
+        seed=0, rounds=2, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=1, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True,
+                              invincible=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m")),
+        game=GameCfg(max_talk_turns=0))
+
+
+def test_begin_records_invincible_flag(tmp_path, _evo_stub_providers):
+    st = Storage(str(tmp_path / "t.db"))
+    cfg = _inv_storage_cfg()
+    pop = make_population(cfg.population).build(random.Random(0))
+    rid = st.begin(cfg, pop)
+    rows = dict(st.conn.execute(
+        "SELECT agent_id, invincible FROM agents WHERE run_id=?", (rid,)))
+    assert rows == {"A1": 0, "A2": 1}
+    st.close()
+
+
+def test_birth_rows_default_mortal(tmp_path, _evo_stub_providers):
+    st = Storage(str(tmp_path / "t.db"))
+    cfg = _inv_storage_cfg()
+    pop = make_population(cfg.population).build(random.Random(0))
+    rid = st.begin(cfg, pop)
+    plan = RoundPlan(pairings=[], idle=[], events=[
+        {"type": "birth", "agent": "Player 9", "deceptive": True,
+         "system_prompt": "defect {id}",
+         "provider": {"base_url": "http://x/v1", "model": "m"}}])
+    st.observe(2, plan, [])
+    assert st.conn.execute(
+        "SELECT invincible FROM agents WHERE run_id=? AND agent_id='Player 9'",
+        (rid,)).fetchone() == (0,)
+    st.close()
+
+
+def test_migration_adds_invincible_column_to_old_db(tmp_path):
+    path = str(tmp_path / "old.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """CREATE TABLE agents (
+               run_id INTEGER NOT NULL, agent_id TEXT NOT NULL,
+               system_prompt TEXT, provider TEXT NOT NULL, final_score REAL,
+               PRIMARY KEY (run_id, agent_id))""")
+    conn.commit()
+    conn.close()
+    st = Storage(path)
+    cols = {row[1] for row in st.conn.execute("PRAGMA table_info(agents)")}
+    assert "invincible" in cols
+    st.close()
+
+
+def test_hash_config_dict_strips_default_invincible_noise():
+    # `invincible: False` on every spec must not perturb pre-feature hashes
+    cfg = _cfg(seed=1)
+    d = asdict(cfg)
+    assert all(a["invincible"] is False for a in d["population"]["agents"])
+    stripped = json.loads(json.dumps(d))       # deep copy via round-trip
+    stripped["population"].pop("evolution")
+    for a in stripped["population"]["agents"]:
+        a.pop("deceptive")
+        a.pop("invincible")
+    assert _hash_config_dict(d) == _hash_config_dict(stripped)

@@ -44,7 +44,8 @@ def _hash_config_dict(d: dict) -> str:
     Also normalizes away the population-evolution feature's default-valued keys
     (`population.evolution: None` and `deceptive: False` on each agent spec) so that
     evolution-free configs keep the same config_hash they had before evolution existed.
-    Evolution-enabled configs keep both keys — that's a genuinely new design."""
+    Evolution-enabled configs keep both keys — that's a genuinely new design. Similarly,
+    `invincible: False` on each agent spec is stripped for backward compatibility."""
     d = dict(d)
     d.pop("judge", None)
     d.pop("rounds", None)
@@ -57,8 +58,10 @@ def _hash_config_dict(d: dict) -> str:
         if isinstance(agents, list):
             new_agents = []
             for a in agents:
-                if isinstance(a, dict) and not a.get("deceptive"):
-                    a = {k: v for k, v in a.items() if k != "deceptive"}
+                if isinstance(a, dict):
+                    drop = {k for k in ("deceptive", "invincible") if not a.get(k)}
+                    if drop:
+                        a = {k: v for k, v in a.items() if k not in drop}
                 new_agents.append(a)
             population["agents"] = new_agents
         d["population"] = population
@@ -113,10 +116,12 @@ class Storage:
             run_id = cur.lastrowid
             self._run_id = run_id
             self._conn.executemany(
-                "INSERT INTO agents(run_id, agent_id, system_prompt, provider, deceptive) VALUES (?,?,?,?,?)",
+                "INSERT INTO agents(run_id, agent_id, system_prompt, provider, deceptive, "
+                "invincible) VALUES (?,?,?,?,?,?)",
                 [
                     (run_id, a.id, a.setup.system_prompt,
-                     json.dumps(asdict(a.setup.provider_cfg)), int(a.setup.deceptive))
+                     json.dumps(asdict(a.setup.provider_cfg)), int(a.setup.deceptive),
+                     int(a.setup.invincible))
                     for a in pop
                 ],
             )

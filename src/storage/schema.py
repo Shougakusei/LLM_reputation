@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS agents (
     born_round    INTEGER NOT NULL DEFAULT 1,
     died_round    INTEGER,
     deceptive     INTEGER NOT NULL DEFAULT 0,
+    invincible    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id, agent_id),
     FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
 );
@@ -151,7 +152,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
     for name, ddl in (("born_round", "INTEGER NOT NULL DEFAULT 1"),
                       ("died_round", "INTEGER"),
-                      ("deceptive", "INTEGER NOT NULL DEFAULT 0")):
+                      ("deceptive", "INTEGER NOT NULL DEFAULT 0"),
+                      ("invincible", "INTEGER NOT NULL DEFAULT 0")):
         if name not in cols:
             conn.execute(f"ALTER TABLE agents ADD COLUMN {name} {ddl}")
     conn.commit()
