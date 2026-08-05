@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import random
+import sqlite3
 from dataclasses import replace
 
 import pytest
 
 from src import runner
 from src.core.config import (
-    AgentSpec, EpisodeCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg,
+    AgentSpec, EpisodeCfg, EvolutionCfg, GameCfg, JudgeCfg, PopulationCfg, ProviderCfg,
 )
 from src.judge import JudgeError, JudgeVerdict, MessageRef
 from src.population import base as popbase
+from src.population import make_population
+from src.population.evolution import evolve
 from src.providers.base import Completion
 
 
@@ -306,5 +310,54 @@ async def test_judge_failure_does_not_lose_the_run(tmp_path, monkeypatch, capsys
     try:
         assert conn.execute("SELECT finished_at FROM runs").fetchone()[0] is not None
         assert conn.execute("SELECT COUNT(*) FROM judge_verdicts").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+# ---- evolution: narration and resume replay ----
+
+def _evo_runner_cfg(rounds=2, seed=0):
+    return EpisodeCfg(
+        seed=seed, rounds=rounds, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=3, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m"),
+            first_name_pool=[f"Player {i}" for i in range(40)],
+            evolution=EvolutionCfg(death_prob=1.0, decept_min=0, decept_max=4)),
+        game=GameCfg(max_talk_turns=0))
+
+
+async def test_narration_prints_deaths_and_births(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    await runner.run_experiment(_evo_runner_cfg(), db)
+    out = capsys.readouterr().out
+    assert "died" in out and "joined the game" in out
+
+
+async def test_resume_replays_evolution_deterministically(tmp_path):
+    db = str(tmp_path / "t.db")
+    cfg = _evo_runner_cfg(rounds=2)
+    rid = await runner.run_experiment(cfg, db, quiet=True)
+    await runner.resume_run(rid, db, rounds=4, quiet=True)
+    # expected live roster after round 4 = fresh build + evolution replay for rounds 2..4
+    pop = make_population(cfg.population).build(random.Random(cfg.seed))
+    try:
+        for r in range(2, 5):
+            evolve(pop, cfg.population, random.Random(f"{cfg.seed}:evolution:{r}"), r)
+        expected = set(pop.ids())
+    finally:
+        await pop.aclose()
+    conn = sqlite3.connect(db)
+    try:
+        ids = set()
+        for a, b in conn.execute(
+                "SELECT a_id, b_id FROM pairings WHERE run_id=? AND round_idx=4", (rid,)):
+            ids |= {a, b}
+        for (aid,) in conn.execute(
+                "SELECT agent_id FROM idle WHERE run_id=? AND round_idx=4", (rid,)):
+            ids.add(aid)
+        assert ids == expected
     finally:
         conn.close()

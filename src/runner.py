@@ -17,6 +17,7 @@ from src.core.config import EpisodeCfg, episode_from_dict
 from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
+from src.population.evolution import evolve
 from src.providers.base import ProviderError
 from src.storage import Storage
 
@@ -24,6 +25,12 @@ from src.storage import Storage
 def narrate_round(r, plan, recs) -> None:
     """Print one round to console as soon as it's played (the live observer)."""
     print(f"\n{'─' * 60}\n  ROUND {r}")
+    for e in plan.events:                              # evolution events happened at round start
+        if e.get("type") == "death":
+            print(f"  † {e['agent']} died (score {e['score']:g})")
+        elif e.get("type") == "birth":
+            mark = " (deceptive)" if e.get("deceptive") else ""
+            print(f"  + {e['agent']} joined the game{mark}")
     if plan.idle:
         print(f"  idle (sat out): {', '.join(plan.idle)}")
     for rec in recs:
@@ -129,12 +136,14 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None,
 def _apply_run_state(pop, state) -> None:
     """Apply the restored state (score + memory) onto a freshly built population.
 
-    Agent ids match: the population is rebuilt from the same config with the same seed,
-    so names are sampled identically. The memory window lives on the agent, not on the
-    Memory object, so replacing memory does not lose it."""
+    Agent ids are matched by deterministic rebuild (same config + seed) and evolution replay.
+    Missing ids (newborns after evolution replay) keep fresh state (score 0, empty memory).
+    The memory window lives on the agent, not on the Memory object, so replacing memory
+    does not lose it."""
     for agent in pop:
-        agent.score = state.scores[agent.id]
-        agent.memory = state.memories[agent.id]
+        agent.score = state.scores.get(agent.id, 0.0)
+        if agent.id in state.memories:
+            agent.memory = state.memories[agent.id]
 
 
 async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
@@ -175,8 +184,13 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
     pop = make_population(cfg.population, context_window=cfg.context_window).build(
         random.Random(cfg.seed)
     )
-    _apply_run_state(pop, state)
     start = state.last_round + 1
+    if cfg.population.evolution is not None:
+        # re-derive roster changes for already-played rounds; round `start` itself
+        # is evolved by run_episode (it evolves every round it plays)
+        for r in range(2, start):
+            evolve(pop, cfg.population, random.Random(f"{cfg.seed}:evolution:{r}"), r)
+    _apply_run_state(pop, state)
     if not quiet:
         if start > cfg.rounds:                          # all rounds exist — just closing the aborted run
             print(f"Finalizing run {run_id} into {db_path}: all {cfg.rounds} rounds recorded, "
