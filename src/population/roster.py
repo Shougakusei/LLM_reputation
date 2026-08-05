@@ -30,7 +30,8 @@ class RosterGenerator:
             for _ in range(spec.count):
                 pop.add(AgentSetup(spec.system_prompt, self._cfg.provider,
                                    spec.play_strategy, spec.prediction_mapping,
-                                   deceptive=spec.deceptive),
+                                   deceptive=spec.deceptive,
+                                   invincible=spec.invincible),
                         agent_id=names[i])
                 i += 1
         return pop

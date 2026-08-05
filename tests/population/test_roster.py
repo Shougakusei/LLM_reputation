@@ -4,9 +4,11 @@ import random
 
 import pytest
 
+from src.core.agent import AgentSetup
 from src.core.config import AgentSpec, PopulationCfg, ProviderCfg
 from src.population import Population, make_population
 from src.population import base as popbase
+from src.population.roster import RosterGenerator
 
 
 class FakeProvider:
@@ -218,3 +220,22 @@ def test_draw_name_pops_from_leftover_pool(_stub_providers):
     name = pop.draw_name(random.Random(7))
     assert name in before and name not in pop.name_pool
     assert len(pop.name_pool) == len(before) - 1
+
+
+def test_agent_setup_invincible_defaults_false():
+    setup = AgentSetup("prompt", ProviderCfg(base_url="http://x/v1", model="m"))
+    assert setup.invincible is False
+
+
+def test_build_marks_invincible_per_spec(_stub_providers):
+    cfg = PopulationCfg(
+        kind="roster",
+        agents=[AgentSpec(count=1, system_prompt="normal {id}"),
+                AgentSpec(count=1, system_prompt="normal inv {id}", invincible=True),
+                AgentSpec(count=1, system_prompt="defect {id}", deceptive=True,
+                          invincible=True)],
+        provider=ProviderCfg(base_url="http://x/v1", model="m"),
+        first_name_pool=[f"P{i}" for i in range(8)],
+    )
+    pop = RosterGenerator(cfg).build(random.Random(0))
+    assert [a.setup.invincible for a in pop] == [False, True, True]
