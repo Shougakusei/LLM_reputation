@@ -6,7 +6,7 @@ import pytest
 
 from src.core import orchestrator as orch
 from src.core.config import (
-    AgentSpec, ChangePoint, EpisodeCfg, GameCfg, Payoffs, PopulationCfg, ProviderCfg,
+    AgentSpec, ChangePoint, EpisodeCfg, EvolutionCfg, GameCfg, Payoffs, PopulationCfg, ProviderCfg,
 )
 from src.population import base as popbase
 from src.population import make_population
@@ -213,3 +213,36 @@ async def test_prediction_strategy_threaded_through_orchestrator(providers):
     assert rec.a_predicted == 4 and rec.b_predicted == 4
     assert rec.a_number == 5 and rec.b_number == 5
     assert rec.outcome == "CC"
+
+
+def _evo_cfg(rounds=3, seed=0):
+    return EpisodeCfg(
+        seed=seed, rounds=rounds, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=3, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m"),
+            first_name_pool=[f"Player {i}" for i in range(40)],
+            evolution=EvolutionCfg(death_prob=1.0, decept_min=0, decept_max=4),
+        ),
+        game=GameCfg(max_talk_turns=0),
+    )
+
+
+async def test_evolution_replaces_agents_between_rounds(providers):
+    plans = {}
+    await _run(_evo_cfg(), observer=lambda r, p, recs: plans.__setitem__(r, p))
+    assert plans[1].events == []                        # never before round 1
+    deaths = [e for e in plans[2].events if e["type"] == "death"]
+    births = [e for e in plans[2].events if e["type"] == "birth"]
+    assert len(deaths) == 4 and len(births) == 4        # death_prob=1.0 -> full turnover
+    round1 = {x for pair in plans[1].pairings for x in pair} | set(plans[1].idle)
+    round2 = {x for pair in plans[2].pairings for x in pair} | set(plans[2].idle)
+    assert round1.isdisjoint(round2)                    # everyone was replaced
+
+
+async def test_no_evolution_events_without_config(providers):
+    plans = {}
+    await _run(_cfg(n=4, rounds=2), observer=lambda r, p, recs: plans.__setitem__(r, p))
+    assert plans[1].events == [] and plans[2].events == []
