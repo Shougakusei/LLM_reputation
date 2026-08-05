@@ -3,8 +3,9 @@
 Deterministic given (population state, rng): the orchestrator derives a dedicated
 rng stream per round (Random(f"{seed}:evolution:{r}")), so resume can re-derive
 every roster change without replaying LLM calls. Rng consumption order is a
-compatibility contract: one random() per live agent in roster order (deaths),
-then per replacement at most one random() (type) plus one randrange() (name).
+compatibility contract: one random() per live agent in roster order (invincible
+agents consume their draw and ignore it), then per replacement at most one
+random() (type) plus one randrange() (name).
 """
 
 from __future__ import annotations
@@ -20,13 +21,15 @@ class NamePoolExhausted(RuntimeError):
 
 
 def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
-    """Kill each agent with probability death_prob and spawn a replacement per death.
+    """Kill each agent with probability death_prob (unless invincible) and spawn a replacement per death.
 
     The replacement is deceptive with probability d/N (d = current live deceptive
     count, N = fixed population size), forced deceptive while d < decept_min and
     forced normal while d >= decept_max. It clones the first matching spec
-    (system prompt, strategy), starts with a fresh memory and score 0, and takes
-    an unused name from the population's leftover pool.
+    (system prompt, strategy), starts with a fresh memory and score 0, is always
+    born mortal, and takes an unused name from the population's leftover pool.
+    Invincible agents consume their death draw but ignore it, preserving the rng
+    stream for deterministic resume.
 
     Args:
         pop: Live population to mutate (remove the dead, add the newborn).
@@ -45,7 +48,8 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
     """
     ev = pop_cfg.evolution
     n_total = len(pop)
-    deaths = [a for a in list(pop) if rng.random() < ev.death_prob]
+    deaths = [a for a in list(pop)
+              if rng.random() < ev.death_prob and not a.setup.invincible]
     events: list[dict] = []
     for agent in deaths:
         pop.remove(agent.id)
@@ -64,6 +68,7 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
                 f"round {round}: name pool exhausted — enlarge the name pools; "
                 f"this run cannot be resumed past this point")
         name = pop.draw_name(rng)
+        # newborns are always mortal: invincible is deliberately not passed (defaults False)
         pop.add(AgentSetup(spec.system_prompt, pop_cfg.provider,
                            spec.play_strategy, spec.prediction_mapping,
                            deceptive=spec.deceptive),
