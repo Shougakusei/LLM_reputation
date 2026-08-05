@@ -215,6 +215,7 @@ population:
   agents:
     - {count: 8, play_strategy: direct, system_prompt: *system_default}
     - {count: 2, play_strategy: direct, system_prompt: *system_defect, deceptive: true}
+    - {count: 1, play_strategy: direct, system_prompt: *system_default, invincible: true}
   evolution:            # optional block; absent -> feature off, zero behavior change
     death_prob: 0.1      # per-agent, per-round probability of dying
     decept_min: 1        # deceptive count never pushed below this by replacements
@@ -226,6 +227,10 @@ population:
   for evolution's bookkeeping. **Only honored when `evolution` is set** — without an
   `evolution` block the flag is normalized to `false` at load regardless of what the YAML
   says (`_population_cfg`, `src/core/config.py`).
+- `agents[*].invincible` (bool, default `false`) — this spec's agents never die during
+  evolution. **Only honored when `evolution` is set**, same normalization as `deceptive`
+  (`_population_cfg`, `src/core/config.py`). A spec may combine `invincible` with
+  `deceptive` freely — the two flags are independent.
 - `evolution.death_prob` — per-agent, per-round probability of dying; must be in `[0, 1]`.
 - `evolution.decept_min` / `decept_max` — bounds the live deceptive count that
   replacements are steered toward; must satisfy `0 <= decept_min <= decept_max <=`
@@ -236,15 +241,20 @@ population:
 `Random(f"{seed}:evolution:{r}")` — mirroring the matchmaker's per-round stream:
 
 1. Each live agent independently dies with probability `death_prob` (one `rng.random()`
-   draw per agent, in current roster order).
+   draw per agent, in current roster order) — **except** an `invincible: true` agent,
+   which still consumes its draw but ignores the result, so it never dies and toggling
+   `invincible` on/off never reshuffles which other agents' draws land on death.
 2. Dead agents are removed, then replacements are created **one at a time**. For each,
-   with `d` = the current live deceptive count and `N` = the fixed population size:
+   with `d` = the current live deceptive count and `N` = the fixed population size
+   (invincible agents count toward both `d` and `N` like any other live agent):
    - `d < decept_min` → the replacement is **forced deceptive**;
    - `d >= decept_max` → the replacement is **forced normal**;
    - otherwise → deceptive with probability `d / N` (one `rng.random()` draw).
 3. A deceptive replacement clones the first `deceptive: true` spec (system prompt, play
    strategy, prediction mapping); a normal replacement clones the first non-deceptive
-   spec. It starts with score `0` and an empty memory.
+   spec — **regardless of that spec's `invincible` flag**, a replacement is always born
+   mortal (`invincible: false`), never inheriting invincibility from the spec it clones.
+   It starts with score `0` and an empty memory.
 4. Its name is drawn by `rng` from the population's unused name-pool remainder (one
    `rng.randrange()` draw) — dead agents' names are never reused, so a replacement never
    inherits a dead agent's reputation. If the pool is exhausted mid-run, the episode
@@ -253,6 +263,8 @@ population:
 **Validation requirements** (`_validate`, fail fast at load) when `evolution` is present:
 - at least one spec has `deceptive: true` and at least one does not;
 - the initial deceptive agent count falls within `[decept_min, decept_max]`;
+- at least one agent is **mortal** — `invincible: true` on every spec is rejected, since
+  a fully invincible population can never turn over;
 - at least one name pool is provided, and **each provided pool is strictly larger than
   the total agent count** — replacements draw unused names from the leftover pool, so it
   needs headroom beyond the initial roster; the `A1..An` id fallback (empty pools) is

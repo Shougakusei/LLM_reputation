@@ -222,7 +222,10 @@ the stored run never saw) simply keep their fresh state (score 0, empty memory).
 `evolution.py`'s rng-consumption order is a documented compatibility contract: one
 `random()` per live agent in roster order (deaths), then per replacement at most one
 `random()` (type — skipped when forced by `decept_min`/`decept_max`) plus one
-`randrange()` (name draw).
+`randrange()` (name draw). An `invincible: true` agent still consumes its death draw —
+it just ignores the result — so the consumption order (and thus every other agent's
+draw) is unchanged whether or not any agent is invincible. Newborns are always mortal
+regardless of the spec they're cloned from.
 
 ### Failure handling
 

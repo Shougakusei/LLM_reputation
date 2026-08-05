@@ -21,10 +21,10 @@ orchestrator's `observer` callback (see [architecture.md](./architecture.md)).
 - `replay.py` accepts **either** an integer `run_id` or a `config_hash` (the latter resolves
   to the earliest run of that family).
 - The hash also strips the population-evolution feature's default-valued keys
-  (`population.evolution: None`, and `deceptive: False` on each agent spec) before hashing,
-  so evolution-free configs keep the exact `config_hash` they had before the feature
-  existed. Evolution-enabled configs keep both keys — that's a genuinely new design, and
-  gets its own hash.
+  (`population.evolution: None`, and `deceptive: False` / `invincible: False` on each
+  agent spec) before hashing, so evolution-free configs keep the exact `config_hash` they
+  had before the feature existed. Evolution-enabled configs keep both keys — that's a
+  genuinely new design, and gets its own hash.
 - `runs.finished_at` NULL = the run crashed/aborted mid-episode (a resume marker).
 
 ## Tables
@@ -32,7 +32,7 @@ orchestrator's `observer` callback (see [architecture.md](./architecture.md)).
 | table | grain | notes |
 |-------|-------|-------|
 | `runs` | one run | `name`, `config` (JSON), `config_hash`, `seed`, `created_at`, `finished_at` |
-| `agents` | one agent in a run | `system_prompt`, `provider` (JSON — model lives here), `final_score`, `born_round`, `died_round`, `deceptive` (see below) |
+| `agents` | one agent in a run | `system_prompt`, `provider` (JSON — model lives here), `final_score`, `born_round`, `died_round`, `deceptive`, `invincible` (see below) |
 | `rounds` | one round | just `(run_id, round_idx)` |
 | `idle` | agent idle in a round | the odd-one-out that sat a round out |
 | `pairings` | one pair in a round | the heart of the results (see below) |
@@ -58,7 +58,7 @@ Columns are from A's / B's perspective:
 
 ### `agents` (population evolution columns)
 
-Three columns support the optional population-evolution feature
+Four columns support the optional population-evolution feature
 ([configuration.md](./configuration.md), *Population evolution*):
 
 - `born_round` (`INTEGER NOT NULL DEFAULT 1`) — the round the agent entered the
@@ -68,12 +68,15 @@ Three columns support the optional population-evolution feature
   alive as of `finished_at` (or the run's last played round, if unfinished).
 - `deceptive` (`INTEGER NOT NULL DEFAULT 0`) — `1` if the agent was cloned from (or is an
   initial agent of) a `deceptive: true` spec, `0` otherwise.
+- `invincible` (`INTEGER NOT NULL DEFAULT 0`) — `1` if the agent is an initial agent of an
+  `invincible: true` spec, `0` otherwise. Replacements are always born mortal, so this is
+  `0` on every birth row regardless of the spec they were cloned from.
 
 Added by an **additive `ALTER TABLE`** migration that runs on every `Storage.__init__`
 (`init_schema`, `src/storage/schema.py`), so opening a DB created before evolution
-existed backfills the three columns onto existing rows with their defaults
-(`born_round=1`, `died_round=NULL`, `deceptive=0`) — such a run simply shows a full
-initial roster with no deaths.
+existed backfills the four columns onto existing rows with their defaults
+(`born_round=1`, `died_round=NULL`, `deceptive=0`, `invincible=0`) — such a run simply
+shows a full initial roster with no deaths.
 
 These columns are **analysis-only**: `resume_run` never reads them back. The live roster
 at a resume point is rebuilt by deterministically re-deriving evolution from
