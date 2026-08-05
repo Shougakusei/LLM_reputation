@@ -158,4 +158,14 @@ async def test_replay_shows_evolution_events(tmp_path, capsys, _evo_providers):
     finally:
         conn.close()
     out = capsys.readouterr().out
-    assert "died" in out and "joined the game" in out
+    # Split output by ROUND 2 header to verify no spurious births in round 1
+    parts = out.split("ROUND 2", 1)
+    assert len(parts) == 2, "Output must contain ROUND 2"
+    round1_section = parts[0]
+    round2_section = parts[1]
+    # Round 1: no evolution events (initial roster has born_round=1 by schema, not shown in replay)
+    assert "died" not in round1_section, "ROUND 1 should not show deaths"
+    assert "joined the game" not in round1_section, "ROUND 1 should not show births"
+    # Round 2: genuine evolution events (agents die/born per evolution rules)
+    assert "died" in round2_section, "ROUND 2 should show deaths"
+    assert "joined the game" in round2_section, "ROUND 2 should show births"

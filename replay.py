@@ -342,7 +342,7 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
     )
     for r in rounds:
         print(f"\n{'─' * 60}\n  ROUND {r}")
-        if has_evolution:
+        if has_evolution and r >= 2:
             for aid, score in conn.execute(
                     "SELECT agent_id, final_score FROM agents "
                     "WHERE run_id=? AND died_round=? ORDER BY agent_id", (run_id, r)):
