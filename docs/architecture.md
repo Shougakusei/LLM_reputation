@@ -210,7 +210,7 @@ the per-round matchmaker stream — and mutates `pop` in place (`Population.remo
 The returned event dicts (`{"type": "death", "agent", "score"}` /
 `{"type": "birth", "agent", "deceptive", "system_prompt", "provider"}`) are **prepended**
 to `RoundPlan.events`, so deaths/births still reach the outside world only through the
-existing `observer` channel, ahead of that round's idle/pairing events.
+existing `observer` channel, before the round's idle/pairing rows are recorded.
 
 Resume re-derives roster changes instead of reading them back from the DB: `resume_run`
 (`src/runner.py`) replays `evolve` for every already-played round `2..start_round - 1`

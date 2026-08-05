@@ -140,7 +140,7 @@ ORDER BY died_round;
 ```
 
 Deceptive share of the live roster at the start of round `r` (agent already born, not
-yet dead as of that round):
+yet dead as of that round) — bind `(run_id, r, r)`, matching the `?` placeholder order:
 
 ```sql
 SELECT
@@ -148,6 +148,6 @@ SELECT
     COUNT(*)       AS total_alive
 FROM agents
 WHERE run_id = ?
-  AND born_round <= :r
-  AND (died_round IS NULL OR died_round > :r);
+  AND born_round <= ?
+  AND (died_round IS NULL OR died_round > ?);
 ```
