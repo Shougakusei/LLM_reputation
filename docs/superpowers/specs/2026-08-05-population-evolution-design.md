@@ -91,7 +91,9 @@ per-round-rng determinism discipline).
   outside world only through the existing observer channel.
 - Event shapes:
   - `{"type": "death", "agent": <id>, "score": <final score>}`
-  - `{"type": "birth", "agent": <id>, "deceptive": <bool>}`
+  - `{"type": "birth", "agent": <id>, "deceptive": <bool>, "system_prompt": <str>,
+    "provider": <dict>}` — the prompt/provider ride along so Storage can insert the
+    newborn's `agents` row without reaching back into the population.
 
 ## Persistence & presentation
 
