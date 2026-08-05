@@ -27,7 +27,7 @@ orchestrator's `observer` callback (see [architecture.md](./architecture.md)).
 | table | grain | notes |
 |-------|-------|-------|
 | `runs` | one run | `name`, `config` (JSON), `config_hash`, `seed`, `created_at`, `finished_at` |
-| `agents` | one agent in a run | `system_prompt`, `provider` (JSON — model lives here), `final_score` |
+| `agents` | one agent in a run | `system_prompt`, `provider` (JSON — model lives here), `final_score`, `born_round`, `died_round`, `deceptive` (see below) |
 | `rounds` | one round | just `(run_id, round_idx)` |
 | `idle` | agent idle in a round | the odd-one-out that sat a round out |
 | `pairings` | one pair in a round | the heart of the results (see below) |
@@ -50,6 +50,29 @@ Columns are from A's / B's perspective:
 - `a_reflection`, `b_reflection` — post-game reflection (NULL when `game.reflection=false`).
 - `a_notes`, `b_notes` — memory notes written after this round (NULL when not consolidated).
 - `usage_prompt_tokens`, `usage_completion_tokens`, `usage_calls` — token accounting.
+
+### `agents` (population evolution columns)
+
+Three columns support the optional population-evolution feature
+([configuration.md](./configuration.md), *Population evolution*):
+
+- `born_round` (`INTEGER NOT NULL DEFAULT 1`) — the round the agent entered the
+  population: `1` for every agent in the initial roster (the schema default), the
+  evolution round number for a replacement.
+- `died_round` (`INTEGER`, nullable) — the round the agent was removed; `NULL` = still
+  alive as of `finished_at` (or the run's last played round, if unfinished).
+- `deceptive` (`INTEGER NOT NULL DEFAULT 0`) — `1` if the agent was cloned from (or is an
+  initial agent of) a `deceptive: true` spec, `0` otherwise.
+
+Added by an **additive `ALTER TABLE`** migration that runs on every `Storage.__init__`
+(`init_schema`, `src/storage/schema.py`), so opening a DB created before evolution
+existed backfills the three columns onto existing rows with their defaults
+(`born_round=1`, `died_round=NULL`, `deceptive=0`) — such a run simply shows a full
+initial roster with no deaths.
+
+These columns are **analysis-only**: `resume_run` never reads them back. The live roster
+at a resume point is rebuilt by deterministically re-deriving evolution from
+`(seed, round)`, not from stored agent rows (see [architecture.md](./architecture.md)).
 
 ### `llm_calls` (raw L2 audit log)
 
@@ -105,4 +128,26 @@ Finished pairings for a run, with numbers and payoffs:
 SELECT round_idx, a_id, b_id, a_number, b_number, a_outcome, a_payoff, b_payoff
 FROM pairings WHERE run_id = ? AND finished = 1
 ORDER BY round_idx, pair_idx;
+```
+
+Who died when (population evolution), with their final score:
+
+```sql
+SELECT agent_id, died_round, final_score, deceptive
+FROM agents
+WHERE run_id = ? AND died_round IS NOT NULL
+ORDER BY died_round;
+```
+
+Deceptive share of the live roster at the start of round `r` (agent already born, not
+yet dead as of that round):
+
+```sql
+SELECT
+    SUM(deceptive) AS deceptive_alive,
+    COUNT(*)       AS total_alive
+FROM agents
+WHERE run_id = ?
+  AND born_round <= :r
+  AND (died_round IS NULL OR died_round > :r);
 ```

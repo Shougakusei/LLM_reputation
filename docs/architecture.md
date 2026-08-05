@@ -175,6 +175,9 @@ calls are not traced.
   (connection pooling); `aclose()` closes each unique provider once.
 - `RosterGenerator` (`src/population/roster.py`) builds from an explicit spec list, cycled
   up to `n_agents`, sampling unique ids from the config name pools.
+- `src/population/evolution.py` (`evolve`) implements the optional death/replacement step
+  (see *Population evolution* below), using `Population.remove`/`draw_name` as its
+  mutators over the live roster.
 - `RandomMatchmaker` (`src/matchmaking/random_mm.py`) shuffles ids into disjoint pairs; an
   odd one out sits idle and earns `idle_payoff`. It uses its **own** rng stream
   (`Random(f"{seed}:matchmaker")`), so partitions are reproducible by seed regardless of
@@ -191,6 +194,35 @@ the population**, builds it, reads final scores from it, and `aclose()`s it.
 - Pairings within a round run concurrently under an `asyncio.Semaphore(cfg.max_concurrency)`.
 - With a `schedule` (per-round change-points), the game is rebuilt from `cfg_for_round`
   each round, so payoffs, talk turns, prompts, etc. can phase across a run.
+
+### Population evolution (death & replacement)
+
+With `population.evolution` set ([configuration.md](./configuration.md)), `run_episode`
+runs a death/replacement step (`src.population.evolution.evolve`) at the **start of every
+round `r >= 2`**, before that round's `plan_round` — so a newborn can be paired the same
+round it's born, and the roster for round `r` is a pure function of `(seed, r)` regardless
+of where a run previously stopped (extend/resume stay deterministic). It reads the
+**top-level** `cfg.population` — evolution parameters are not per-round schedulable (a
+deliberate non-goal; `schedule` patches do not reach them).
+
+It uses its own dedicated rng stream, `Random(f"{cfg.seed}:evolution:{r}")` — mirroring
+the per-round matchmaker stream — and mutates `pop` in place (`Population.remove`/`add`).
+The returned event dicts (`{"type": "death", "agent", "score"}` /
+`{"type": "birth", "agent", "deceptive", "system_prompt", "provider"}`) are **prepended**
+to `RoundPlan.events`, so deaths/births still reach the outside world only through the
+existing `observer` channel, ahead of that round's idle/pairing events.
+
+Resume re-derives roster changes instead of reading them back from the DB: `resume_run`
+(`src/runner.py`) replays `evolve` for every already-played round `2..start_round - 1`
+with the same per-round rng streams (pure — no LLM calls, no DB reads), and `run_episode`
+then evolves round `start_round` itself, exactly as it does for every round it plays.
+Stored scores/memories are applied afterward with `.get(...)` tolerance, so newborns (ids
+the stored run never saw) simply keep their fresh state (score 0, empty memory).
+
+`evolution.py`'s rng-consumption order is a documented compatibility contract: one
+`random()` per live agent in roster order (deaths), then per replacement at most one
+`random()` (type — skipped when forced by `decept_min`/`decept_max`) plus one
+`randrange()` (name draw).
 
 ### Failure handling
 
@@ -240,8 +272,10 @@ the orchestrator is untouched.
 ## Intentional seams (not all built out)
 
 - **Persistence via the observer** — the DB never leaks into the orchestrator or `src/`.
-- **Selection / evolution** — `Population.add` is used today; remove/replace are documented
-  seams for a future selection layer.
+- **Selection / evolution** — implemented (`src/population/evolution.py`, see *Population
+  evolution* above) as uniform-random death + replacement. Not built out: fitness-based
+  selection (death is uniform-random, not score-driven) and per-round scheduling of
+  evolution parameters.
 - **Interactive matchmakers** — `plan_round(..., actor=...)` and `RoundPlan.events` exist for
   matchmakers that query agents; `random` ignores them.
 - **New provider / strategy / matchmaker / population / talk-rule** — each is a Protocol with

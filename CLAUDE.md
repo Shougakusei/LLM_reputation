@@ -34,7 +34,8 @@ src/
 ├── strategy/       PlayStrategy: direct | prediction (map via match/one_above)
 ├── judge/          judge.py (LLM judge), keyword.py (deterministic term judge),
 │                   transcript.py (public cheap-talk builder), base.py
-├── population/     Population (live roster, provider cache) + RosterGenerator
+├── population/     Population (live roster, provider cache, remove/draw_name) + RosterGenerator
+│                   + evolution.py (death/replacement step)
 ├── matchmaking/    Matchmaker Protocol + RandomMatchmaker (disjoint pairs, idle)
 ├── storage/        SQLite persistence: schema.py, store.py (Storage), records.py
 ├── stats/          verdict aggregation: aggregate.py, wilson.py, selection.py
