@@ -180,7 +180,6 @@ def test_build_marks_deceptive_and_keeps_leftover_pool(_stub_providers):
 
 
 def test_agent_setup_deceptive_defaults_false():
-    from src.core.agent import AgentSetup
     setup = AgentSetup("prompt", ProviderCfg(base_url="http://x/v1", model="m"))
     assert setup.deceptive is False
 
