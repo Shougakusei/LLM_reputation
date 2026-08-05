@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import random
+import pytest
+import replay as replay_mod
 
 from replay import (
     _expand_newlines, _preview, _provider_line, _readable, _roster_line,
     _roster_names, cited_set, highlight, load_verdict,
 )
+from src import runner
+from src.core.config import AgentSpec, EpisodeCfg, EvolutionCfg, GameCfg, PopulationCfg, ProviderCfg
+from src.population import base as popbase
+from src.providers.base import Completion
 
 
 def test_readable_starts_content_body_on_new_line():
@@ -109,3 +116,46 @@ def test_load_verdict_returns_row_when_present():
         assert load_verdict(conn, "missing") is None
     finally:
         conn.close()
+
+
+class _EvoFixedProvider:
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    async def complete(self, **kw):
+        return Completion(text='{"number": 4, "rationale": "r"}',
+                          prompt_tokens=2, completion_tokens=3, raw={})
+
+    async def aclose(self):
+        pass
+
+
+@pytest.fixture
+def _evo_providers(monkeypatch):
+    monkeypatch.setattr(popbase, "make_provider", lambda cfg: _EvoFixedProvider(cfg))
+
+
+def _evo_replay_cfg():
+    return EpisodeCfg(
+        seed=0, rounds=2, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=3, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m"),
+            first_name_pool=[f"Player {i}" for i in range(40)],
+            evolution=EvolutionCfg(death_prob=1.0, decept_min=0, decept_max=4)),
+        game=GameCfg(max_talk_turns=0))
+
+
+async def test_replay_shows_evolution_events(tmp_path, capsys, _evo_providers):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_evo_replay_cfg(), db, quiet=True)
+    capsys.readouterr()                                 # drop the run's own output
+    conn = sqlite3.connect(db)
+    try:
+        replay_mod.replay(conn, rid)
+    finally:
+        conn.close()
+    out = capsys.readouterr().out
+    assert "died" in out and "joined the game" in out

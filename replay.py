@@ -337,8 +337,20 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
             "SELECT round_idx FROM rounds WHERE run_id=? ORDER BY round_idx", (run_id,)
         )
     ]
+    has_evolution = any(
+        row[1] == "died_round" for row in conn.execute("PRAGMA table_info(agents)")
+    )
     for r in rounds:
         print(f"\n{'─' * 60}\n  ROUND {r}")
+        if has_evolution:
+            for aid, score in conn.execute(
+                    "SELECT agent_id, final_score FROM agents "
+                    "WHERE run_id=? AND died_round=? ORDER BY agent_id", (run_id, r)):
+                print(f"  † {aid} died (score {(score or 0):g})")
+            for aid, dec in conn.execute(
+                    "SELECT agent_id, deceptive FROM agents "
+                    "WHERE run_id=? AND born_round=? ORDER BY agent_id", (run_id, r)):
+                print(f"  + {aid} joined the game{' (deceptive)' if dec else ''}")
         idle = [a for (a,) in conn.execute(
             "SELECT agent_id FROM idle WHERE run_id=? AND round_idx=? ORDER BY agent_id", (run_id, r)
         )]
