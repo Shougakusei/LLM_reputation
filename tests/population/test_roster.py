@@ -139,3 +139,62 @@ def test_single_pool_numeric_entries_become_str_ids(created):
     # numeric pool entries (YAML numbers) become string ids
     pop = make_population(_pop_cfg_named([_spec("p", count=2)], [348, 712, 905], [])).build(random.Random(0))
     assert all(isinstance(i, str) for i in pop.ids())
+
+
+class _StubProvider:
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    async def complete(self, **kw):
+        raise AssertionError("roster tests must not call the LLM")
+
+    async def aclose(self):
+        pass
+
+
+@pytest.fixture
+def _stub_providers(monkeypatch):
+    monkeypatch.setattr(popbase, "make_provider", lambda cfg: _StubProvider(cfg))
+
+
+def _pool_cfg(pool_size=8):
+    return PopulationCfg(
+        kind="roster",
+        agents=[AgentSpec(count=2, system_prompt="normal {id}"),
+                AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+        provider=ProviderCfg(base_url="http://x/v1", model="m"),
+        first_name_pool=[f"P{i}" for i in range(pool_size)],
+    )
+
+
+def test_build_marks_deceptive_and_keeps_leftover_pool(_stub_providers):
+    cfg = _pool_cfg()
+    pop = make_population(cfg).build(random.Random(0))
+    assert [a.setup.deceptive for a in pop] == [False, False, True]
+    # leftover pool = the unused names, in original pool order
+    used = set(pop.ids())
+    assert pop.name_pool == [n for n in cfg.first_name_pool if n not in used]
+    assert len(pop.name_pool) == 5
+
+
+def test_agent_setup_deceptive_defaults_false():
+    from src.core.agent import AgentSetup
+    setup = AgentSetup("prompt", ProviderCfg(base_url="http://x/v1", model="m"))
+    assert setup.deceptive is False
+
+
+def test_remove_drops_agent_from_roster(_stub_providers):
+    pop = make_population(_pool_cfg()).build(random.Random(0))
+    victim = pop.ids()[1]
+    pop.remove(victim)
+    assert victim not in pop.ids() and len(pop) == 2
+    with pytest.raises(KeyError):
+        pop.get(victim)
+
+
+def test_draw_name_pops_from_leftover_pool(_stub_providers):
+    pop = make_population(_pool_cfg()).build(random.Random(0))
+    before = list(pop.name_pool)
+    name = pop.draw_name(random.Random(7))
+    assert name in before and name not in pop.name_pool
+    assert len(pop.name_pool) == len(before) - 1

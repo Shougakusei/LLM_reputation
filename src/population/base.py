@@ -11,8 +11,8 @@ class Population:
 
     Owns the provider cache: agents sharing a (base_url, model) share one client
     (connection pooling), so `aclose()` closes each unique provider exactly once.
-    Evolution mutators (remove/replace) are a documented seam added with the
-    selection layer — the MVP only ever calls `add()`.
+    Evolution mutators (remove/replace) are a documented seam now implemented by
+    `remove()` and `draw_name()` — the MVP only ever calls `add()`.
     """
 
     def __init__(self, *, context_window: int | None = None):
@@ -21,6 +21,7 @@ class Population:
         self._counter = 0
         self._providers: dict[tuple[str, str], LLMProvider] = {}
         self._window = context_window
+        self.name_pool: list[str] = []   # unused replacement names (set by the generator; evolution draws from it)
 
     @property
     def agents(self) -> list[Agent]:
@@ -54,6 +55,18 @@ class Population:
         self._agents.append(agent)
         self._by_id[agent.id] = agent
         return agent
+
+    def remove(self, agent_id: str) -> None:
+        """Remove a live agent from the roster (its id is never reused)."""
+        agent = self._by_id.pop(agent_id)
+        self._agents.remove(agent)
+
+    def draw_name(self, rng) -> str:
+        """Pop an unused name from the leftover pool at an rng-chosen index.
+
+        The caller must ensure the pool is non-empty (evolution raises its own
+        error with round context before calling this on an empty pool)."""
+        return self.name_pool.pop(rng.randrange(len(self.name_pool)))
 
     async def aclose(self) -> None:
         for provider in self._providers.values():   # one entry per unique (base_url, model)

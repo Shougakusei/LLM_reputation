@@ -134,6 +134,7 @@ class AgentSetup:
     # object is assembled at the game level, see ReputationPD._strategy_for).
     play_strategy: str = "direct"        # "direct" | "prediction"
     prediction_mapping: str = "match"    # predict->choice mapping (prediction strategy only)
+    deceptive: bool = False              # evolution: this agent counts as deceptive (see EvolutionCfg)
 
 
 # Correction text for retries lives in the config (GameCfg.*_correction), not hardcoded here.
