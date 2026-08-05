@@ -192,6 +192,26 @@ def test_remove_drops_agent_from_roster(_stub_providers):
         pop.get(victim)
 
 
+def test_both_pools_leftover_is_deterministic_per_seed(_stub_providers):
+    # Two-pool mode ("First Last"): building twice with the same seed must give the
+    # same roster ids AND the same leftover name_pool (evolution draws replacements
+    # from it, so its order/content must be reproducible on resume).
+    firsts = [f"F{i}" for i in range(10)]
+    lasts = [f"L{i}" for i in range(10)]
+    cfg = _pop_cfg_named([_spec("p", count=4)], firsts, lasts)
+
+    pop1 = make_population(cfg).build(random.Random(7))
+    pop2 = make_population(cfg).build(random.Random(7))
+
+    assert pop1.ids() == pop2.ids()
+    assert pop1.name_pool == pop2.name_pool
+    assert len(pop1.name_pool) == 6                    # 10 - 4 used, per pool
+    for name in pop1.name_pool:
+        first, last = name.split(" ")
+        assert first in firsts and last in lasts        # leftovers are "First Last" from unused names
+        assert name not in pop1.ids()
+
+
 def test_draw_name_pops_from_leftover_pool(_stub_providers):
     pop = make_population(_pool_cfg()).build(random.Random(0))
     before = list(pop.name_pool)

@@ -61,8 +61,9 @@ def _sample_names(cfg, rng) -> tuple[list[str | None], list[str]]:
     if firsts and lasts:
         f = rng.sample(firsts, total)
         l = rng.sample(lasts, total)
-        rem_f = [x for x in firsts if x not in set(f)]
-        rem_l = [x for x in lasts if x not in set(l)]
+        used_f, used_l = set(f), set(l)
+        rem_f = [x for x in firsts if x not in used_f]
+        rem_l = [x for x in lasts if x not in used_l]
         return ([f"{a} {b}" for a, b in zip(f, l)],
                 [f"{a} {b}" for a, b in zip(rem_f, rem_l)])
     if firsts or lasts:                          # exactly one pool -> id = the element itself (no last name)

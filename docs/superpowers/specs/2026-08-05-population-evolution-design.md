@@ -87,7 +87,7 @@ per-round-rng determinism discipline).
   draws are deterministic.
 - `run_episode` (`src/core/orchestrator.py`) calls the evolution step at the top of
   each round r >= 2 (before `plan_round`) when `cfg.population.evolution` is set,
-  and appends the returned events to `RoundPlan.events` — deaths/births reach the
+  and prepends the returned events to `RoundPlan.events` — deaths/births reach the
   outside world only through the existing observer channel.
 - Event shapes:
   - `{"type": "death", "agent": <id>, "score": <final score>}`

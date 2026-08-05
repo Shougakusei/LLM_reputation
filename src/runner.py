@@ -17,7 +17,7 @@ from src.core.config import EpisodeCfg, episode_from_dict
 from src.core.orchestrator import EpisodeAborted, run_episode
 from src.judge import JudgeError, JudgeVerdict, judge_episode
 from src.population import make_population
-from src.population.evolution import evolve
+from src.population.evolution import NamePoolExhausted, evolve
 from src.providers.base import ProviderError
 from src.storage import Storage
 
@@ -117,6 +117,12 @@ async def run_experiment(cfg: EpisodeCfg, db_path: str, name: str | None = None,
             # the aborted pairing is already persisted; run stays without finished_at (crash marker)
             print(f"\nepisode aborted: {e} — run saved without finished_at")
             return run_id
+        except NamePoolExhausted as e:
+            # the evolution step ran out of replacement names before this round was recorded;
+            # run stays without finished_at — enlarge the name pool and start a new run
+            print(f"\n{e} — run saved without finished_at; "
+                  f"this run cannot be resumed past this point (enlarge the name pool and start a new run)")
+            return run_id
         st.finish(pop)
 
         if not quiet:
@@ -209,6 +215,10 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
             await run_episode(cfg, pop, observer=observer, start_round=start)
         except EpisodeAborted as e:
             print(f"\nepisode aborted: {e} — run saved without finished_at")
+            return run_id
+        except NamePoolExhausted as e:
+            print(f"\n{e} — run saved without finished_at; "
+                  f"this run cannot be resumed past this point (enlarge the name pool and start a new run)")
             return run_id
         st.finish(pop)
 

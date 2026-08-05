@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import random
+
 import pytest
 import replay as replay_mod
 

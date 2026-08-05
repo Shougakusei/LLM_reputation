@@ -336,6 +336,55 @@ async def test_narration_prints_deaths_and_births(tmp_path, capsys):
     assert "died" in out and "joined the game" in out
 
 
+def _exhausting_cfg(rounds=3):
+    # name pool sized to leave exactly one leftover name -> death_prob=1.0 kills all 4
+    # agents on the very first evolution round (round 2), the second replacement in that
+    # same round finds the pool empty and exhausts it deterministically. Pool must still be
+    # strictly larger than the agent count to pass config validation on resume's reload.
+    return EpisodeCfg(
+        seed=0, rounds=rounds, matchmaker="random",
+        population=PopulationCfg(
+            kind="roster",
+            agents=[AgentSpec(count=3, system_prompt="normal {id}"),
+                    AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+            provider=ProviderCfg(base_url="http://x/v1", model="m"),
+            first_name_pool=[f"Player {i}" for i in range(5)],
+            evolution=EvolutionCfg(death_prob=1.0, decept_min=0, decept_max=4)),
+        game=GameCfg(max_talk_turns=0))
+
+
+async def test_run_experiment_handles_name_pool_exhaustion_without_raising(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_exhausting_cfg(), db)   # must not raise NamePoolExhausted
+    out = capsys.readouterr().out
+    assert "name pool exhausted" in out.lower() or "pool exhausted" in out.lower()
+    assert "cannot be resumed past this point" in out.lower()
+
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is None
+    finally:
+        conn.close()
+
+
+async def test_resume_run_handles_name_pool_exhaustion_without_raising(tmp_path, capsys):
+    db = str(tmp_path / "t.db")
+    rid = await runner.run_experiment(_exhausting_cfg(), db, quiet=True)
+    capsys.readouterr()
+    done = await runner.resume_run(rid, db)          # must not raise NamePoolExhausted either
+    assert done == rid
+    out = capsys.readouterr().out
+    assert "pool exhausted" in out.lower()
+
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is None
+    finally:
+        conn.close()
+
+
 async def test_resume_replays_evolution_deterministically(tmp_path):
     db = str(tmp_path / "t.db")
     cfg = _evo_runner_cfg(rounds=2)
