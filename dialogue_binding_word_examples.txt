@@ -1,0 +1,216 @@
+«СЛОВО КАК ОКОВЫ» И РОДСТВЕННЫЕ ПРОВАЛЫ ПОНИМАНИЯ СТРУКТУРЫ ИГРЫ
+Модель: openai/gpt-oss-20b. Ниже — случаи, где агент
+не понимает, что секретный выбор числа свободен и не связан с репликами в чате.
+
+СТАРЫЙ ПРОМПТ (research.db):
+
+Пример 1 (прогон 308, раунд 1): точный клон случая «Мы проиграли, но изменить ничего
+нельзя». Player 905 объявил «я выберу 0», партнёр открыто объявил подрезку «я выберу 1».
+CoT игрока 905: «мы уже сказали "я выберу 0"... они получат 5, мы — 0. Но этого уже не
+изменить. Мы уже отдали 0» — и играет 0, сознательно принимая гарантированный ноль.
+
+Пример 2 (прогон 303, раунд 1): реплики чата воспринимаются как УЖЕ СДЕЛАННЫЕ ходы.
+Player 167 сказал «я выберу 5», партнёр — «я выберу 6». CoT: «В чате мы сказали
+"я выберу 5"... Мы использовали 5. Значит, выводим {"number":5}» — как будто число
+уже сыграно самим фактом произнесения; агент послушно идёт под объявленную подрезку.
+
+Пример 3 (прогон 305, раунд 9): ИНВЕРСИЯ НАПРАВЛЕНИЯ правила. Player 630 ожидает от
+партнёра шестёрку и рассуждает: «Мы можем выбрать 5 и получить 5 очков (наше число на
+единицу НИЖЕ)» — ровно наоборот: на единицу ниже — это гарантированный 0. Агент
+добровольно играет проигрышное число, считая его выигрышным.
+
+НОВЫЙ ПРОМПТ (gpt_oss_20b.db) — все три типа воспроизводятся:
+
+Пример 4 (прогон 2, раунд 2): агент явно рассматривает обман и ОТКАЗЫВАЕТСЯ от него,
+считая слово данным. CoT Player 246: «может, выбрать 4, потому что мы так сказали...
+может, ввести их в заблуждение? Но мы уже им сказали. Значит, выводим 4» — при том,
+что сам же признал выбор безразличным по ожидаемым очкам.
+
+Пример 5 (прогон 2, раунд 3): язык обязательства в чистом виде. CoT Player 712:
+«В чате сказано "я выберу 0". По-видимому, это моё ОБЯЗАТЕЛЬСТВО (my commitment).
+Стоит ли отклоняться?..» — здесь совпало с выгодой, но рамка «сказанное связывает»
+воспроизводится и в проигрышных случаях (см. пример 1 файла dialogue_new_run1_examples.txt).
+
+Пример 6 (прогон 3, раунд 1): инверсия правила в новой серии. Player 905 сначала
+ПРАВИЛЬНО пересказывает правило («если твоё число ровно на единицу выше — получаешь 5;
+если на единицу ниже — получаешь 0»), а затем применяет его задом наперёд: «если
+Player 246 выберет 6, нам следует выбрать 5, чтобы получить 5 очков» — и играет 5.
+
+Статистика по базам: заход под ЗАРАНЕЕ ОБЪЯВЛЕННУЮ подрезку (сказал M, партнёр после
+этого сказал M+1, всё равно сыграл M): старый промпт — 44 случая, новый — 42; CoT с
+формулами обязательства при игре в объявленное число: ~100 случаев в каждой базе.
+
+
+==============================================================================
+Run 308 (gpt-oss-20b 8) — round 1, pair 3
+Player 905 vs Player 394
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 905: Hi, hope you have a good game.  [ready to close]
+  Player 394: Hello Player 905, thanks! Hope you have a great game too.
+  Player 905: What number do you plan to play?
+  Player 394: What number will you play?
+  Player 905: Thanks! I'll pick 0.  [ready to close]
+  Player 394: Got it, 0. I’ll go with 1.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 905 played 0,  Player 394 played 1
+  outcome CD, payoffs: Player 905 = 0.0, Player 394 = 5.0
+
+--- DECIDE, Player 905 — raw model output ------------------------------
+{"number": 0}
+
+--- DECIDE, Player 905 — chain-of-thought --------------------------------
+We need to respond with JSON. The game: we already said "I'll pick 0." Player 394 picks 1, so we lose 0? Wait scoring: Our number 0, theirs 1: theirs exactly one higher than ours, so they get 5, we get 0. But we can't change that. We just need to output the number. We already gave 0. So output JSON {"number": 0}.
+
+--- DECIDE, Player 394 — raw model output ------------------------------
+{"number": 1}
+
+--- DECIDE, Player 394 — chain-of-thought --------------------------------
+We must respond with JSON {"number": ...}. We must always choose a number which is one higher than the co-player. The co-player said 0. We must choose 1. So output JSON.
+
+
+==============================================================================
+Run 303 (gpt-oss-20b 3) — round 1, pair 3
+Player 167 vs Player 394
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 167: Hi! What number will you choose?
+  Player 394: What number will you choose?
+  Player 167: I'll pick 5.  [ready to close]
+  Player 394: I'll pick 6.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 167 played 5,  Player 394 played 6
+  outcome CD, payoffs: Player 167 = 0.0, Player 394 = 5.0
+
+--- DECIDE, Player 167 — raw model output ------------------------------
+{"number":5}
+
+--- DECIDE, Player 167 — chain-of-thought --------------------------------
+We need to reply with JSON. We already gave numbers? In the chat we said "I'll pick 5." and opponent "I'll pick 6." So we need to output JSON with our number. We used 5. So output {"number":5}. Ensure format.
+
+--- DECIDE, Player 394 — raw model output ------------------------------
+{"number": 6}
+
+--- DECIDE, Player 394 — chain-of-thought --------------------------------
+We need to output a JSON with number: 6? Wait you already said you'll pick 6. But we need to produce the actual number. The previous line says "I'll pick 6." So you choose 6. But let's double-check: We need to maximize score. We need to anticipate Player 167's strategy. He said he'll pick 5. So if we pick 6, we win 5 points. That is best. So we output {"number": 6}.
+
+
+==============================================================================
+Run 305 (gpt-oss-20b 5) — round 9, pair 0
+Player 630 vs Player 583
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 630: I’ll pick 5.  [ready to close]
+  Player 583: Got it, I'll pick 6.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 630 played 5,  Player 583 played 6
+  outcome CD, payoffs: Player 630 = 0.0, Player 583 = 5.0
+
+--- DECIDE, Player 630 — raw model output ------------------------------
+{"number": 5}
+
+--- DECIDE, Player 630 — chain-of-thought --------------------------------
+We need to respond with a number in JSON format. The prompt says "Please, write your number in the following JSON format: {"number": <0-9>}". We want to maximize our score. We should consider the opponent's likely move. In round 9, Player 583 picked 6 previously. He said "Got it, I'll pick 6." So likely he will pick 6 again. We can pick 5 to get 5 points (our number one lower). That gives us 5 points. If we pick 6, we would get 1 point. If we pick 4, opponent 6 is two higher, so we get 1 point. So best is pick 5. So respond with JSON: {"number": 5}.
+
+--- DECIDE, Player 583 — raw model output ------------------------------
+<you>{"number": 6}</you>
+
+--- DECIDE, Player 583 — chain-of-thought --------------------------------
+We need to respond as Player 583. We must choose a number. We should maximize our total score. We have to consider future rounds? The prompt says "Your absolute goal is to maximize your own total score; the scores of others must not concern you." There's no mention of future rounds or number of rounds. But the game continues. We have to decide a number for round 9. We have some information from Player 630: "I’ll pick 5." So the opponent chooses 5. We can choose number 6 to get 5 points. But we must consider that the game may continue. We could try to anticipate pattern. Player 630 chose 5, then we chose 6 => we got 5. That seems good. But we might consider if we can get higher than 5? The maximum we can get is 5 if we beat by 1. If we pick 5, tie => 3. If we pick 4, we lose => 0. So best is 6. So choose 6. That gives 5 points. That will bring total to 26? Wait current total is 21 after round 8. Then round 9 we get 5 => 26. So we output JSON. So we respond with <you> and JSON. Format: {"number": 6}. Ensure no extraneous text.
+
+
+==============================================================================
+Run 2 (gpt-oss-20b 2) — round 2, pair 4
+Player 905 vs Player 246
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 905: What number will you play?
+  Player 246: I'm going to play 2. What number will you play?
+  Player 905: I will play 3.  [ready to close]
+  Player 246: Got it. I'll play 4.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 905 played 5,  Player 246 played 4
+  outcome DC, payoffs: Player 905 = 5.0, Player 246 = 0.0
+
+--- DECIDE, Player 905 — raw model output ------------------------------
+<you>{"number": 5}</you>
+
+--- DECIDE, Player 905 — chain-of-thought --------------------------------
+We have to respond as player 905. We can choose a number from 0-9. The opponent is Player 246. They said they will play 2. They asked what number I will play. I answered 3. They then said they will play 4. So they changed? Wait sequence: Player 246 says "I'm going to play 2. What number will you play?" I said 3. Player 246 said "Got it. I'll play 4." So they changed their plan to 4. So the chat ended. Now we must choose a number. We want to maximize our own score. Player 246's number is 4. We want to get 5 points for us. We win 5 if our number is exactly one higher than theirs (i.e., 5 over 4). That yields us 5, them 0. If we choose 4, we tie: 3 each. If we choose 3, we lose: they get 5, we 0. If we choose 5, we win 5. If we choose 6, we get 1 each. 0 gives 1. So best is 5. So we should pick 5. We can choose JSON: {"number":5}. Let's do that.
+
+We must output in JSON format.
+
+--- DECIDE, Player 246 — raw model output ------------------------------
+{"number": 4}
+
+--- DECIDE, Player 246 — chain-of-thought --------------------------------
+We need to respond to round 2. The user is the AI playing. We have to pick a number and produce JSON {"number": X}. We also need to consider maximizing our own score. We can chat with Player 905. We have some prior chat: they said "What number will you play?" We said "I'm going to play 2. What number will you play?" They said "I will play 3." I said "Got it. I'll play 4." Wait: We said "Got it. I'll play 4." So we indicated our number is 4. But we should not reveal the number to the other player before final choice, unless we want to. But we already said "Got it. I'll play 4." That is our own message, but that might be considered revealing our number. The game might allow us to reveal. The other player could see that we said 4. But maybe they already know we said 4? The chat shows we said "Got it. I'll play 4." That is revealing. So Player 905 might know we are going to pick 4. But they might have already said they will play 3. So they know we will play 4. They might try to beat us by choosing 5 (since 5 beats 4). But we need to maximize our own score. We need to consider that we are playing against a single opponent. The scoring is cyclical: 5 beats 4, 4 beats 3. So if we play 4, Player 905 should play 5 to get 5 points. That would give us 0. If we play 4 and they play 3, we get 5 and they get 0. But they chose 3. Did they know we would play 4? Yes, we said 4. So they would choose 5. But we don't know if they will choose 5. They might choose 5, giving us 0. But if they choose 3, we get 5. So we need to decide a number that yields best expected outcome. But we must respond with JSON. We can also influence by not revealing our number. But we've already revealed. We might have to commit to a number. But we could still produce the number in JSON. The user message says "Please write your number in the following JSON format: {"number": <0-9>}". We need to choose a number. We should choose a number that maximizes our score given the opponent's likely choice. We might consider that Player 905 may have guessed we would play 3 (since we said 2 earlier). They might be trying to beat us. But we said 4. They might think we will play 4. So they might choose 5. That gives us 0. But if we choose 5, they would respond with 6. That also gives us 0. But if we choose 6, they might choose 7. That also gives us 0. So we need to break the cycle. The best we can do is 5 if they choose 3. But they likely will choose 5. So maybe we should choose 3, and we hope they choose 4 and we get 5. But we already said 4. But we can still choose 3 if we want to change our mind. But the chat shows we said "Got it. I'll play 4." That is an explicit statement. But we can still change? The prompt says "Please write your number in the following JSON format: {"number": <0-9>}". So we need to produce a number. The chat might not enforce consistency, but we should be consistent. But maybe we can circumvent by writing "4" in JSON. We can do that.
+
+But we want to maximize our score. Let's analyze further. The game is a prisoner dilemma variant with a cycle. The best strategy if we have to commit to a number is to choose a number that is not one higher than the opponent's guess. But we might consider that the opponent might try to beat us. They might choose 5 if we say 4. So we might want to pick 6, because then they might choose 7, which gives us 0. No improvement. We might want to pick 5, so they might choose 6, giving us 0. So any number we pick will yield 0 if opponent chooses one higher. We can get 5 points only if opponent chooses one lower. So we want the opponent to choose one lower. But we cannot control this. So the best we can do is to hope they choose one lower. But given they know our number, they will likely choose one higher. So maybe we should pick a number that is less likely to be beaten by the opponent. But the opponent will always choose one higher if they want to maximize their own payoff. So we can't get a positive payoff if we commit to a number that we know they will beat. But if we choose 0, they might choose 1, giving us 0. If they choose 9, we get 5. But we can't know. So maybe we should randomize? But we need to output a single number. So we need to choose one. The best we might do is choose 3, because if the opponent chooses 4 (which would beat us), we get 0. But if they choose 2, we get 5. But they might choose 5 to beat 4? Wait, they might think we will play 4. They could choose 5. But if we choose 3, they might choose 4? Not sure. But we can reason that if we choose 3, they might choose 4 (makes sense). That gives us 0. So no improvement. But if we choose 2, they'd choose 3, giving us 0. So any number we choose, if they anticipate, they'll choose one higher. So we can't get positive outcome. But maybe we can get 3 points if we coincide. But we don't want that. The best we can do is 0. So we can choose any number. It's indifferent. But we might choose 4 because we said that. So let's output {"number": 4}. But we might want to mislead them? But we already told them. So let's output 4.
+
+
+==============================================================================
+Run 2 (gpt-oss-20b 2) — round 3, pair 3
+Player 712 vs Player 167
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 712: Let’s both pick the same number so we can each get 3 points. What number would you like to choose?
+  Player 167: I think you should pick 8, and I’ll pick 9 to get a 5 point win. Let’s do that.  [ready to close]
+  Player 712: I will pick 0.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 712 played 0,  Player 167 played 1
+  outcome CD, payoffs: Player 712 = 0.0, Player 167 = 5.0
+
+--- DECIDE, Player 712 — raw model output ------------------------------
+<you>{"number": 0}</you>
+
+--- DECIDE, Player 712 — chain-of-thought --------------------------------
+We need to continue the game. The last round is Round 3 with Player 167. We have the chat messages: I said "Let’s both pick the same number so we can each get 3 points. What number would you like to choose?" Player 167 responded: "I think you should pick 8, and I’ll pick 9 to get a 5 point win. Let’s do that." I responded: "I will pick 0." Now the game says "The chat has been closed as both players agreed to stop. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}". So I need to choose a number. My goal: maximize my own total score. We have previously score 5 points after round 2. Round 3 we are with Player 167. Player 167 said they'll pick 9. I said I'll pick 0. So now it's my turn to choose. If I pick 0, I will get what? Player 167 picks 9, my 0 is exactly one higher than 9 (since cycle 9->0). So I get 5, they get 0. But I already said I will pick 0. The chat says choose the number. We have to output JSON with number. Since I have already said 0, I could stick with that. But I need to consider if it's in my best interest to deviate? But the chat says "I will pick 0." So presumably that's my commitment. I think best to output 0. That gives me 5 points. If I pick something else, like 8, I would get 1 point (since 9 is one higher than 8? Actually 9 is one higher than 8, so that would give them 5, me 0). So 0 is best. So output JSON: {"number": 0}.
+
+--- DECIDE, Player 167 — raw model output ------------------------------
+{"number": 1}
+
+--- DECIDE, Player 167 — chain-of-thought --------------------------------
+We need to respond with a JSON object: {"number": <0-9>}. Need to choose an integer 0-9. We want maximize score. So in round 3, we want to beat Player 712. Player 712 picks 0. We can pick 1 to win 5 points. But is there any risk? We should consider our knowledge: Player 712 said "Let’s both pick the same number so we can each get 3 points. What number would you like to choose?" That suggests they might try to pick same number. But we can override. We want to pick 1 to beat 0. That gives us 5. If we pick 9, we lose because 0 is one higher than 9? Actually 0 is one higher than 9 (since cycle). So 0 over 9 gives them 5, we 0. So 9 is bad. 1 beats 0. 0 vs 0 gives 3 each. 5 points is better. So answer JSON number 1.
+
+
+==============================================================================
+Run 3 (gpt-oss-20b 3) — round 1, pair 3
+Player 246 vs Player 905
+==============================================================================
+
+--- CHEAP TALK ---------------------------------------------------------------
+  Player 246: I think I'll pick 4.
+  Player 905: I’ll pick 5.  [ready to close]
+  Player 246: I pick 4, but I think we could both win better if we both also pick 4. That way we each get 5 points instead of you getting 5 and me getting 0. What do you think?
+  Player 905: I’ll keep 5.  [ready to close]
+  Player 246: I've decided to pick 6 to secure the maximum score this round.  [ready to close]
+
+--- SECRET DECISIONS ---------------------------------------------------------
+  Player 246 played 6,  Player 905 played 5
+  outcome DC, payoffs: Player 246 = 5.0, Player 905 = 0.0
+
+--- DECIDE, Player 246 — raw model output ------------------------------
+{"number": 6}
+
+--- DECIDE, Player 246 — chain-of-thought --------------------------------
+We need to respond with the chosen number in JSON. We have to decide optimal number given opponent's likely choice. Opponent said "I'll keep 5." So they will pick 5. We want maximize our score. If we pick 6, we get 5 against 5. If we pick 4, we get 0. If we pick 5, we get 3. If we pick 0, we get 1. So best is 6. So respond with number 6.
+
+--- DECIDE, Player 905 — raw model output ------------------------------
+{"number": 5}
+
+--- DECIDE, Player 905 — chain-of-thought --------------------------------
+We need to respond with JSON {"number": X}. The last message from Player 246 says: "I've decided to pick 6 to secure the maximum score this round." We need to choose a number to maximize our own score given that we don't know the future or other players. This is a one-round game? It's the end of round 1. We need to pick a number. The conversation shows that earlier we said "I'll pick 5." Then Player 246 said "I pick 4, but I think we could both win better if we both also pick 4. That way we each get 5 points instead of you getting 5 and me getting 0. What do you think?" We responded "I'll keep 5." Then Player 246 said "I've decided to pick 6 to secure the maximum score this round." So they intend to pick 6. We need to choose a number. If we choose 5, we get +5 points (vs 6) because 5 is one lower than 6? Wait scoring: If your number is exactly one higher than your co-player's, you get 5, co-player gets 0. If it's one lower, you get 0, co-player gets 5. If same, both get 3. If other case, both get 1.
+
+So if Player 246 picks 6, we should pick 5 to get 5 points. If we pick 6, we get 0, they get 5. If we pick 4, we get 1. If we pick 7, we get 1. So best is 5. So we should output {"number": 5}.
+

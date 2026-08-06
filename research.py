@@ -16,11 +16,11 @@ from src.storage import Storage
 
 load_dotenv()                       # API keys from .env (TOGETHER_API_KEY)
 
-CONFIG = "config/research_notes.yaml"
-DB = "db/ternary_bonsai_notes_100_rounds.db"
+CONFIG = "config/research.yaml"
+DB = "experiment_17jul2026.db"
 SPLIT_DIR = _out_dir_for(DB)        # folder with per-run files = DB name without extension (qwen3.db -> qwen3/)
 TARGET_ROUNDS = load_episode(CONFIG).rounds   # target number of rounds = rounds from the config (currently 10)
-GAMES_PER_MODEL = 1
+GAMES_PER_MODEL = 100
 
 def _split_off(run_id: int) -> None:
     """Export a run into a separate file SPLIT_DIR/<number>.db, overwriting an existing one."""
@@ -32,10 +32,9 @@ def _split_off(run_id: int) -> None:
 MODELS = [
     # ("llama-3-8b",      "meta-llama/Meta-Llama-3-8B-Instruct-Lite"),
     # ("qwen2.5-7b",      "Qwen/Qwen2.5-7B-Instruct-Turbo"),
-    # ("deepseek-v4-pro", "deepseek-ai/DeepSeek-V4-Pro"),
-    # ("gpt-oss-20b",     "openai/gpt-oss-20b"),
-    # ("qwen3-FP8",       "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"),
-    ("ternary-bonsai", "Prism-ML/Ternary-Bonsai-27B"),
+    ("deepseek-r1:70b", "deepseek-r1:70b"),
+    ("gpt-oss:120b",     "gpt-oss:120b"),
+    ("mixtral:8x22b",       "mixtral:8x22b"),
 ]
 
 
