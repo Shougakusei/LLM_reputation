@@ -25,7 +25,8 @@ src/
 ├── core/
 │   ├── agent.py        Agent.act: memory + phase context -> LLM -> parsed JSON;
 │   │                   phases TALK/DECIDE/PREDICT/REFLECT/NOTE; DEBUG trace of LLM input
-│   ├── memory.py       per-agent diary of past rounds, rendered into the prompt
+│   ├── memory.py       per-agent diary of past rounds + optional consolidated notes
+│   │                   (memory_notes_every), rendered into the prompt
 │   ├── jsonextract.py  lenient JSON extraction (raw / fenced / balanced-brace)
 │   ├── config.py       frozen dataclasses + load_episode + _validate (fail fast)
 │   └── orchestrator.py run_episode: rounds loop, semaphore, observer callback
@@ -35,12 +36,13 @@ src/
 ├── judge/          judge.py (LLM judge), keyword.py (deterministic term judge),
 │                   transcript.py (public cheap-talk builder), base.py
 ├── population/     Population (live roster, provider cache, remove/draw_name) + RosterGenerator
-│                   + evolution.py (death/replacement step)
+│                   + evolution.py (death/replacement; deceptive & invincible agent flags)
 ├── matchmaking/    Matchmaker Protocol + RandomMatchmaker (disjoint pairs, idle)
 ├── storage/        SQLite persistence: schema.py, store.py (Storage), records.py
 ├── stats/          verdict aggregation: aggregate.py, wilson.py, selection.py
 └── runner.py       run() / resume_run(): wires the observer to Storage, scores, judges
-config/             one YAML = one episode (experiment.yaml, research.yaml, judge_qwen3_vllm.yaml)
+config/             one YAML = one episode; reference.yaml is a commented catalogue of
+                    every knob; research*.yaml are research conditions
 tests/              mirrors src/; unit tests stub the LLM, smoke tests hit Ollama
 docs/               checked-in English docs (architecture / configuration / database / development)
 ```
@@ -154,10 +156,23 @@ diary, and decide/predict context per provider attempt. In tests, use
 `tests/core/test_agent.py`).
 </important>
 
+<important if="you are modifying population evolution (death/replacement) or the deceptive/invincible flags">
+- Rng consumption order in `src/population/evolution.py` is a compatibility contract:
+  one `random()` per live agent in roster order (invincible agents consume and ignore
+  their draw), then per replacement at most one `random()` (type) + one `randrange()`
+  (name). Resume re-derives every roster change from `Random(f"{seed}:evolution:{r}")`,
+  so reordering draws silently corrupts resumed runs.
+- `deceptive` / `invincible` spec flags are honored only when `population.evolution` is
+  set (normalized to false otherwise). Validation requires at least one deceptive and one
+  non-deceptive spec, at least one mortal agent, and a name pool for replacements.
+  Reference: `docs/configuration.md` (*Population evolution*).
+</important>
+
 <important if="you need to understand persistence or query stored runs">
 SQLite: `src/storage/schema.py` is the source of truth. Run identity is an incremental
-integer `run_id`; `config_hash` (config minus `judge` and `rounds`) groups a design
-family. Tables, columns, and query patterns: `docs/database.md`.
+integer `run_id`; `config_hash` (config minus `judge` and `rounds`, with default-valued
+evolution keys stripped so pre-feature configs keep their hash) groups a design family.
+Tables, columns, and query patterns: `docs/database.md`.
 </important>
 
 ## Doc index
