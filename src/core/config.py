@@ -329,13 +329,18 @@ class EvolutionCfg:
     """Population turnover: per-round death and replacement (see docs/configuration.md).
 
     At the start of each round r >= 2 every agent dies with probability `death_prob` and is
-    replaced by a fresh agent; the replacement is deceptive with probability d/N (d = current
-    live deceptive count, N = population size), forced deceptive while d < decept_min and
-    forced normal while d >= decept_max."""
+    replaced by a fresh agent. How the replacement's role is chosen depends on `replacement`:
+      "roll"    — deceptive with probability d/N (d = current live deceptive count,
+                  N = population size), forced deceptive while d < decept_min and forced
+                  normal while d >= decept_max; clones the first spec matching the flag.
+      "inherit" — clones the dying agent's full setup (system prompt, strategy, mapping,
+                  deceptive flag); decept_min/decept_max are ignored and may be omitted.
+    """
 
     death_prob: float
-    decept_min: int
-    decept_max: int
+    decept_min: int | None = None    # required (int) in roll mode; ignored in inherit mode
+    decept_max: int | None = None    # required (int) in roll mode; ignored in inherit mode
+    replacement: str = "roll"        # "roll" | "inherit"
 
 
 @dataclass(frozen=True)
@@ -508,23 +513,28 @@ def _validate(d: dict) -> None:
         p = evolution.get("death_prob")
         if not isinstance(p, (int, float)) or isinstance(p, bool) or not (0 <= p <= 1):
             raise ValueError(f"evolution.death_prob must be a number in [0, 1], got: {p!r}")
-        lo, hi = evolution.get("decept_min"), evolution.get("decept_max")
-        for key, v in (("decept_min", lo), ("decept_max", hi)):
-            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-                raise ValueError(f"evolution.{key} must be an integer >= 0, got: {v!r}")
-        if not (lo <= hi <= total):
+        mode = evolution.get("replacement", "roll")
+        if mode not in ("roll", "inherit"):
             raise ValueError(
-                f"evolution requires decept_min <= decept_max <= agent count, "
-                f"got: {lo} <= {hi} <= {total}")
+                f"evolution.replacement must be 'roll' or 'inherit', got: {mode!r}")
         specs = pop["agents"]
-        if not any(a.get("deceptive") for a in specs) or all(a.get("deceptive") for a in specs):
-            raise ValueError(
-                "evolution requires at least one deceptive and one non-deceptive agent spec")
-        n_decept = sum(a.get("count", 1) for a in specs if a.get("deceptive"))
-        if not (lo <= n_decept <= hi):
-            raise ValueError(
-                f"initial deceptive count ({n_decept}) is outside "
-                f"[decept_min, decept_max] = [{lo}, {hi}]")
+        if mode == "roll":
+            lo, hi = evolution.get("decept_min"), evolution.get("decept_max")
+            for key, v in (("decept_min", lo), ("decept_max", hi)):
+                if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                    raise ValueError(f"evolution.{key} must be an integer >= 0, got: {v!r}")
+            if not (lo <= hi <= total):
+                raise ValueError(
+                    f"evolution requires decept_min <= decept_max <= agent count, "
+                    f"got: {lo} <= {hi} <= {total}")
+            if not any(a.get("deceptive") for a in specs) or all(a.get("deceptive") for a in specs):
+                raise ValueError(
+                    "evolution requires at least one deceptive and one non-deceptive agent spec")
+            n_decept = sum(a.get("count", 1) for a in specs if a.get("deceptive"))
+            if not (lo <= n_decept <= hi):
+                raise ValueError(
+                    f"initial deceptive count ({n_decept}) is outside "
+                    f"[decept_min, decept_max] = [{lo}, {hi}]")
         if all(a.get("invincible") for a in specs):
             raise ValueError(
                 "evolution requires at least one mortal (non-invincible) agent")

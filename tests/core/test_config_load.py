@@ -862,6 +862,63 @@ def test_evolution_requires_a_name_pool():
         episode_from_dict(d)
 
 
+def test_replacement_defaults_to_roll():
+    d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 1, "decept_max": 3},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert cfg.population.evolution.replacement == "roll"
+
+
+def test_replacement_inherit_parses_without_decept_bounds():
+    d = _evo_dict(evolution={"death_prob": 0.1, "replacement": "inherit"},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert cfg.population.evolution == EvolutionCfg(
+        death_prob=0.1, decept_min=None, decept_max=None, replacement="inherit")
+
+
+def test_replacement_rejects_unknown_value():
+    d = _evo_dict(evolution={"death_prob": 0.1, "replacement": "mutate"},
+                  first_pool=[f"P{i}" for i in range(10)])
+    with pytest.raises(ValueError, match="replacement"):
+        episode_from_dict(d)
+
+
+def test_roll_mode_still_requires_decept_bounds():
+    d = _evo_dict(evolution={"death_prob": 0.1},
+                  first_pool=[f"P{i}" for i in range(10)])
+    with pytest.raises(ValueError, match="decept_min"):
+        episode_from_dict(d)
+
+
+def test_inherit_mode_allows_single_flag_population():
+    # No deceptive spec at all: fine under inherit (pure turnover), rejected under roll.
+    d = _evo_dict(evolution={"death_prob": 0.1, "replacement": "inherit"},
+                  agents=[{"count": 4, "system_prompt": "normal {id}"}],
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert cfg.population.evolution.replacement == "inherit"
+
+
+def test_inherit_mode_ignores_decept_bounds_when_present():
+    # decept_min/decept_max may be present but are ignored: values that roll mode
+    # would reject (initial deceptive count 1 outside [3, 3]) load fine.
+    d = _evo_dict(evolution={"death_prob": 0.1, "replacement": "inherit",
+                             "decept_min": 3, "decept_max": 3},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    assert cfg.population.evolution.decept_min == 3
+
+
+def test_inherit_survives_asdict_roundtrip():
+    from dataclasses import asdict
+    d = _evo_dict(evolution={"death_prob": 0.5, "replacement": "inherit"},
+                  first_pool=[f"P{i}" for i in range(10)])
+    cfg = episode_from_dict(d)
+    again = episode_from_dict(asdict(cfg))
+    assert again.population.evolution == cfg.population.evolution
+
+
 def test_invincible_flag_parses_per_spec():
     d = _evo_dict(evolution={"death_prob": 0.1, "decept_min": 1, "decept_max": 3},
                   agents=[
