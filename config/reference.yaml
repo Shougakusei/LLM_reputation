@@ -44,8 +44,8 @@ population:
   last_name_pool: []
 
   # ── Population evolution (EvolutionCfg) — optional; absent -> no turnover ────
-  # Per-round death & replacement from round 2 on. Needs deceptive/invincible flags
-  # on agent specs and a name pool strictly larger than the agent count.
+  # Per-round death & replacement from round 2 on. Roll mode needs deceptive flags
+  # on agent specs; both modes need a name pool strictly larger than the agent count.
   # evolution:
   #   death_prob: 0.1     # per-agent, per-round probability of dying, in [0, 1]
   #   replacement: roll   # roll (default): type rolled d/N within the bounds below;

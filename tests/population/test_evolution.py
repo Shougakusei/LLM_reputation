@@ -293,13 +293,28 @@ def test_inherit_consumes_no_type_randoms():
     assert rng._randoms == [] and rng._ranges == []
 
 
-def test_inherit_full_turnover_preserves_type_composition():
+def test_inherit_full_turnover_pairs_each_newborn_with_its_predecessor():
     cfg = _inherit_cfg(death_prob=1.0)
     pop = _build(cfg)
-    before = sorted((a.setup.system_prompt, a.setup.deceptive) for a in pop)
-    evolve(pop, cfg, random.Random(0), round=2)
+    dying = list(pop)                                        # full turnover: everyone dies
+    setup_by_id = {a.id: (a.setup.system_prompt, a.setup.deceptive) for a in dying}
+    before = sorted(setup_by_id.values())
+    events = evolve(pop, cfg, random.Random(0), round=2)
     after = sorted((a.setup.system_prompt, a.setup.deceptive) for a in pop)
     assert after == before                                   # roles frozen, names changed
+
+    deaths = [e for e in events if e["type"] == "death"]
+    births = [e for e in events if e["type"] == "birth"]
+    # event order is all deaths first, then births, both in roster order, so
+    # birth i replaces death i: pair them positionally and check each newborn
+    # inherited its own predecessor's setup, not merely some setup from the batch
+    # (a crossed-pairing bug would still pass the multiset check above).
+    assert [d["agent"] for d in deaths] == [a.id for a in dying]
+    for death, birth in zip(deaths, births):
+        expected = setup_by_id[death["agent"]]
+        assert (birth["system_prompt"], birth["deceptive"]) == expected
+        newborn = pop.get(birth["agent"])
+        assert (newborn.setup.system_prompt, newborn.setup.deceptive) == expected
 
 
 def test_inherit_newborns_are_mortal_with_fresh_names():

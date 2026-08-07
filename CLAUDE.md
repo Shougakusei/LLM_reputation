@@ -165,8 +165,8 @@ diary, and decide/predict context per provider attempt. In tests, use
   `Random(f"{seed}:evolution:{r}")`, so reordering draws silently corrupts resumed runs.
 - `deceptive` / `invincible` spec flags are honored only when `population.evolution` is
   set (normalized to false otherwise). Validation requires at least one deceptive and one
-  non-deceptive spec, at least one mortal agent, and a name pool for replacements.
-  Reference: `docs/configuration.md` (*Population evolution*).
+  non-deceptive spec (roll mode only), plus at least one mortal agent and a name pool for
+  replacements (both modes). Reference: `docs/configuration.md` (*Population evolution*).
 </important>
 
 <important if="you need to understand persistence or query stored runs">

@@ -225,8 +225,8 @@ the stored run never saw) simply keep their fresh state (score 0, empty memory).
 never drawn at all in inherit mode) plus one `randrange()` (name draw). An
 `invincible: true` agent still consumes its death draw — it just ignores the result — so
 the consumption order (and thus every other agent's draw) is unchanged whether or not
-any agent is invincible. Newborns are always mortal regardless of the spec they're
-cloned from.
+any agent is invincible. Newborns are always mortal regardless of the spec or dying
+agent they're cloned from.
 
 `evolution.replacement: inherit` replaces the type roll with a clone of the dying
 agent's setup (no type draw; the per-replacement rng cost drops to the single name
