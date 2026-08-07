@@ -45,7 +45,9 @@ def _hash_config_dict(d: dict) -> str:
     (`population.evolution: None` and `deceptive: False` on each agent spec) so that
     evolution-free configs keep the same config_hash they had before evolution existed.
     Evolution-enabled configs keep both keys — that's a genuinely new design. Similarly,
-    `invincible: False` on each agent spec is stripped for backward compatibility."""
+    `invincible: False` on each agent spec is stripped for backward compatibility. Within
+    `population.evolution`, also strips `replacement: "roll"` (the default) and `None`-valued
+    `decept_min`/`decept_max` so pre-feature evolution configs keep their hash."""
     d = dict(d)
     d.pop("judge", None)
     d.pop("rounds", None)
@@ -54,6 +56,15 @@ def _hash_config_dict(d: dict) -> str:
         population = dict(population)
         if population.get("evolution") is None:
             population.pop("evolution", None)
+        evolution = population.get("evolution")
+        if isinstance(evolution, dict):
+            evolution = dict(evolution)
+            if evolution.get("replacement", "roll") == "roll":
+                evolution.pop("replacement", None)
+            for key in ("decept_min", "decept_max"):
+                if evolution.get(key) is None:
+                    evolution.pop(key, None)
+            population["evolution"] = evolution
         agents = population.get("agents")
         if isinstance(agents, list):
             new_agents = []

@@ -489,6 +489,49 @@ def test_hash_config_dict_keeps_evolution_when_enabled(tmp_path):
     assert h_evo != h_no_evo
 
 
+def _evo_variant(base, **evo_kwargs):
+    pop = replace(
+        base.population,
+        agents=[AgentSpec(count=2), AgentSpec(count=1, deceptive=True)],
+        first_name_pool=["Alice", "Bob", "Carol", "Dave"],
+        evolution=EvolutionCfg(**evo_kwargs),
+    )
+    return replace(base, population=pop)
+
+
+def test_hash_config_dict_strips_default_replacement_and_null_bounds():
+    # A stored pre-feature evolution config has no `replacement` key and int bounds.
+    # Its post-feature asdict twin carries replacement="roll" — same hash required.
+    cfg = _evo_variant(_cfg(seed=1), death_prob=0.1, decept_min=0, decept_max=1)
+    d = asdict(cfg)
+    assert d["population"]["evolution"]["replacement"] == "roll"
+
+    legacy = json.loads(json.dumps(d))         # deep copy via round-trip
+    legacy["population"]["evolution"].pop("replacement")
+    assert _hash_config_dict(d) == _hash_config_dict(legacy)
+
+
+def test_hash_config_dict_strips_none_decept_bounds():
+    # An inherit config without bounds must hash the same whether the None keys
+    # are present (asdict) or absent (hand-written dict).
+    cfg = _evo_variant(_cfg(seed=1), death_prob=0.1, replacement="inherit")
+    d = asdict(cfg)
+    assert d["population"]["evolution"]["decept_min"] is None
+
+    bare = json.loads(json.dumps(d))
+    bare["population"]["evolution"].pop("decept_min")
+    bare["population"]["evolution"].pop("decept_max")
+    assert _hash_config_dict(d) == _hash_config_dict(bare)
+
+
+def test_hash_config_dict_inherit_is_a_new_design():
+    base = _cfg(seed=1)
+    roll = _evo_variant(base, death_prob=0.1, decept_min=0, decept_max=1)
+    inherit = _evo_variant(base, death_prob=0.1, decept_min=0, decept_max=1,
+                           replacement="inherit")
+    assert _hash_config_dict(asdict(roll)) != _hash_config_dict(asdict(inherit))
+
+
 def test_judge_config_still_persisted_in_runs(tmp_path):
     cfg = replace(_cfg(), judge=_judge_cfg())
     st = _store(tmp_path)
