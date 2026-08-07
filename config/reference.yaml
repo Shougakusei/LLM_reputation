@@ -43,6 +43,16 @@ population:
   first_name_pool: [Player 101, Player 202, Player 303, Player 404]
   last_name_pool: []
 
+  # ── Population evolution (EvolutionCfg) — optional; absent -> no turnover ────
+  # Per-round death & replacement from round 2 on. Needs deceptive/invincible flags
+  # on agent specs and a name pool strictly larger than the agent count.
+  # evolution:
+  #   death_prob: 0.1     # per-agent, per-round probability of dying, in [0, 1]
+  #   replacement: roll   # roll (default): type rolled d/N within the bounds below;
+  #                       # inherit: newborn clones the dying agent's role (bounds ignored)
+  #   decept_min: 1       # roll mode only: deceptive count never pushed below this
+  #   decept_max: 4       # roll mode only: replacements never push deceptive count above this
+
   # One LLM provider shared by every agent (required). Any OpenAI-compatible
   # /chat/completions endpoint (Together.ai, Ollama, vLLM, ...).
   provider:

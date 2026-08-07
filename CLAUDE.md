@@ -159,9 +159,10 @@ diary, and decide/predict context per provider attempt. In tests, use
 <important if="you are modifying population evolution (death/replacement) or the deceptive/invincible flags">
 - Rng consumption order in `src/population/evolution.py` is a compatibility contract:
   one `random()` per live agent in roster order (invincible agents consume and ignore
-  their draw), then per replacement at most one `random()` (type) + one `randrange()`
-  (name). Resume re-derives every roster change from `Random(f"{seed}:evolution:{r}")`,
-  so reordering draws silently corrupts resumed runs.
+  their draw), then per replacement at most one `random()` (type — `replacement: roll`
+  only; `replacement: inherit` clones the dying agent's setup and never draws it) + one
+  `randrange()` (name). Resume re-derives every roster change from
+  `Random(f"{seed}:evolution:{r}")`, so reordering draws silently corrupts resumed runs.
 - `deceptive` / `invincible` spec flags are honored only when `population.evolution` is
   set (normalized to false otherwise). Validation requires at least one deceptive and one
   non-deceptive spec, at least one mortal agent, and a name pool for replacements.

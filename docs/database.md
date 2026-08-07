@@ -24,7 +24,10 @@ orchestrator's `observer` callback (see [architecture.md](./architecture.md)).
   (`population.evolution: None`, and `deceptive: False` / `invincible: False` on each
   agent spec) before hashing, so evolution-free configs keep the exact `config_hash` they
   had before the feature existed. Evolution-enabled configs keep both keys — that's a
-  genuinely new design, and gets its own hash.
+  genuinely new design, and gets its own hash. Within `population.evolution`, the hash
+  likewise strips `replacement: "roll"` (the default) and `None`-valued `decept_min`/
+  `decept_max`, so pre-feature evolution configs keep the `config_hash` they had before
+  `replacement` existed.
 - `runs.finished_at` NULL = the run crashed/aborted mid-episode (a resume marker).
 
 ## Tables
