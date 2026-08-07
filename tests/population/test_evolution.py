@@ -231,3 +231,91 @@ def test_evolution_with_invincible_is_deterministic_across_rebuilds():
             evolve(pop, cfg, random.Random(f"5:evolution:{r}"), r)
         rosters.append([(a.id, a.setup.deceptive, a.setup.invincible) for a in pop])
     assert rosters[0] == rosters[1]
+
+
+def _inherit_cfg(pool_size=20, death_prob=0.5):
+    """Like _pop_cfg but with replacement="inherit" and no decept bounds.
+
+    Roster order: 2 direct normals, 1 prediction normal, 1 deceptive."""
+    return PopulationCfg(
+        kind="roster",
+        agents=[AgentSpec(count=2, system_prompt="normal {id}"),
+                AgentSpec(count=1, system_prompt="predict {id}",
+                          play_strategy="prediction", prediction_mapping="one_above"),
+                AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
+        provider=ProviderCfg(base_url="http://x/v1", model="m"),
+        first_name_pool=[f"Player {i}" for i in range(pool_size)],
+        evolution=EvolutionCfg(death_prob=death_prob, replacement="inherit"),
+    )
+
+
+def test_inherit_newborn_clones_dying_agents_full_setup():
+    cfg = _inherit_cfg()
+    pop = _build(cfg)
+    dead = pop.agents[3]                                     # the deceptive agent
+    # draws: 4 deaths (only #4 dies), then ONE name index — no type draw in inherit mode
+    rng = FakeRng(randoms=[0.9, 0.9, 0.9, 0.1], ranges=[0])
+    events = evolve(pop, cfg, rng, round=2)
+    assert events[0] == {"type": "death", "agent": dead.id, "score": dead.score}
+    birth = events[1]
+    assert birth["type"] == "birth" and birth["deceptive"] is True
+    assert birth["system_prompt"] == "defect {id}"
+    newborn = pop.get(birth["agent"])
+    assert newborn.setup.deceptive is True
+    assert newborn.setup.system_prompt == "defect {id}"
+    assert newborn.score == 0.0 and newborn.memory.entries == []
+    assert birth["agent"] != dead.id and len(pop) == 4
+
+
+def test_inherit_preserves_strategy_and_mapping():
+    cfg = _inherit_cfg()
+    pop = _build(cfg)
+    # only the prediction agent (roster position 3) dies
+    rng = FakeRng(randoms=[0.9, 0.9, 0.1, 0.9], ranges=[0])
+    events = evolve(pop, cfg, rng, round=2)
+    birth = next(e for e in events if e["type"] == "birth")
+    newborn = pop.get(birth["agent"])
+    assert newborn.setup.play_strategy == "prediction"
+    assert newborn.setup.prediction_mapping == "one_above"
+
+
+def test_inherit_consumes_no_type_randoms():
+    """Exact-count oracle: inherit mode must draw only deaths + names.
+
+    Full turnover of 4 agents: exactly 4 random() (deaths) and 4 randrange() (names).
+    FakeRng raises IndexError on any extra draw, catching a regression that would
+    desync the rng stream and corrupt resumed runs."""
+    cfg = _inherit_cfg(death_prob=1.0)
+    pop = _build(cfg)
+    rng = FakeRng(randoms=[0.5, 0.5, 0.5, 0.5], ranges=[0, 1, 2, 3])
+    events = evolve(pop, cfg, rng, round=2)
+    assert len([e for e in events if e["type"] == "birth"]) == 4
+    assert rng._randoms == [] and rng._ranges == []
+
+
+def test_inherit_full_turnover_preserves_type_composition():
+    cfg = _inherit_cfg(death_prob=1.0)
+    pop = _build(cfg)
+    before = sorted((a.setup.system_prompt, a.setup.deceptive) for a in pop)
+    evolve(pop, cfg, random.Random(0), round=2)
+    after = sorted((a.setup.system_prompt, a.setup.deceptive) for a in pop)
+    assert after == before                                   # roles frozen, names changed
+
+
+def test_inherit_newborns_are_mortal_with_fresh_names():
+    cfg = _inherit_cfg(death_prob=1.0)
+    pop = _build(cfg)
+    initial = set(pop.ids())
+    evolve(pop, cfg, random.Random(0), round=2)
+    assert all(a.id not in initial and a.setup.invincible is False for a in pop)
+
+
+def test_inherit_is_deterministic_across_rebuilds():
+    cfg = _inherit_cfg(death_prob=0.7)
+    rosters = []
+    for _ in range(2):
+        pop = _build(cfg, seed=1)
+        for r in (2, 3):
+            evolve(pop, cfg, random.Random(f"5:evolution:{r}"), r)
+        rosters.append([(a.id, a.setup.system_prompt, a.setup.deceptive) for a in pop])
+    assert rosters[0] == rosters[1]
