@@ -83,7 +83,9 @@ Running an episode needs a reachable provider; the API key is read from `.env`
 - **Everything is in English** — docstrings (Google-style), inline `#` comments, `print`s,
   logging (`_log.*` / `logging.*`), raised exception messages, LLM-facing prompt text
   (`src/games/prompts.py`), and `docs/` — across `src/`, root scripts, and `tests/`. This
-  overrides the user's global default of Russian for these categories.
+  overrides the user's global default of Russian for these categories. One deliberate
+  exception: the fixture `"Ты ИИ-игрок {id}. Play well."` in `tests/core/test_agent.py`
+  stays Russian — it tests verbatim system-prompt pass-through; do not translate it.
 - TDD: write the failing test first (AAA, behavioural name), then minimal code.
 - Manage dependencies only via `uv` (`uv add` / `uv remove` / `uv sync`) — never
   `pip` / `poetry`.

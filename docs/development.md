@@ -9,6 +9,11 @@ extend the engine. These are binding for any change.
 error messages, LLM-facing prompt text, and docs. Docstrings are Google-style
 (Args / Returns / Raises); see `src/games/prompts.py` for house style.
 
+Known exception: the test fixture string `"Ты ИИ-игрок {id}. Play well."` in
+`tests/core/test_agent.py` is intentionally kept as-is — it verifies that a system
+prompt template passes through `Agent.act` verbatim (only `{id}` substituted),
+regardless of language. Do not "fix" it to English.
+
 ## Code patterns
 
 - **`from __future__ import annotations`** at the top of every module.
