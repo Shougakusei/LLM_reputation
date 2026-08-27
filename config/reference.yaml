@@ -8,7 +8,8 @@
 # ── Episode (EpisodeCfg) ─────────────────────────────────────────────────────
 seed: random            # int = fixed & reproducible; "random" = drawn at load (the drawn int is persisted)
 rounds: 10              # number of rounds in the episode
-matchmaker: random      # pairing scheme; only "random" is implemented
+matchmaker: random      # random = shuffled disjoint pairs; sequence = first agent meets the
+                        # r-th roster agent in round r, others idle (rounds <= n_agents - 1)
 context_window: null    # per-agent memory window in rounds; null = unbounded
 idle_payoff: 1          # what the odd agent out scores when it sits a round out
 max_concurrency: 5      # how many pairings play at the same time (semaphore)

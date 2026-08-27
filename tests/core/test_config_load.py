@@ -965,3 +965,25 @@ def test_evolution_rejects_all_invincible_population():
                   first_pool=[f"P{i}" for i in range(10)])
     with pytest.raises(ValueError, match="mortal"):
         episode_from_dict(d)
+
+
+def test_sequence_matchmaker_requires_enough_agents(tmp_path):
+    # matchmaker: sequence plays the first agent against each following one, one per
+    # round -> rounds must not exceed n_agents - 1.
+    f = tmp_path / "seq.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 3
+        matchmaker: sequence
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 3}
+        """
+    ))
+    with pytest.raises(ValueError, match="sequence"):
+        load_episode(str(f))
+    f.write_text(f.read_text().replace("rounds: 3", "rounds: 2"))
+    assert load_episode(str(f)).matchmaker == "sequence"

@@ -48,7 +48,7 @@ stays in its design family. The LLM judge is not re-run on resume/extend.
 |-------|---------|
 | `seed` | drives population build + a derived matchmaker rng stream. An int = fixed seed; `random` = draw a fresh seed at load time. The drawn int is persisted (`runs.seed`/`config`), so the run stays reproducible and resume reuses it. |
 | `rounds` | number of rounds in the episode |
-| `matchmaker` | only `random` is implemented |
+| `matchmaker` | `random` — shuffle into disjoint pairs each round; `sequence` — manual schedule: the roster order is the play order, the first agent (the subject) meets the r-th agent in round r while everyone else idles (opener drawn from the round rng; validated: `rounds <= n_agents - 1`) |
 | `context_window` | per-agent memory window; `null` = unbounded |
 | `idle_payoff` | what an odd-one-out agent scores when it sits a round out |
 | `max_concurrency` | semaphore size for concurrent pairings |

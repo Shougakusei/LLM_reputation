@@ -284,8 +284,10 @@ the orchestrator is untouched.
   evolution* above) as uniform-random death + replacement. Not built out: fitness-based
   selection (death is uniform-random, not score-driven) and per-round scheduling of
   evolution parameters.
-- **Interactive matchmakers** — `plan_round(..., actor=...)` and `RoundPlan.events` exist for
-  matchmakers that query agents; `random` ignores them.
+- **Matchmakers** — `random` (disjoint pairs, odd one idles) and `sequence` (manual schedule:
+  the first roster agent meets the r-th one in round r, the rest idle — one subject against a
+  fixed order of fresh partners). `plan_round(..., actor=...)` and `RoundPlan.events` exist for
+  interactive matchmakers that query agents; both built-ins ignore them.
 - **New provider / strategy / matchmaker / population / talk-rule** — each is a Protocol with
   a `make_*` factory; register there and extend `_validate` if needed (see
   [development.md](./development.md)).

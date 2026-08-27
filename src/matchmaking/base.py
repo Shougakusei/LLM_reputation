@@ -24,4 +24,8 @@ def make_matchmaker(kind: str) -> Matchmaker:
         from src.matchmaking.random_mm import RandomMatchmaker
 
         return RandomMatchmaker()
+    if kind == "sequence":
+        from src.matchmaking.sequence import SequenceMatchmaker
+
+        return SequenceMatchmaker()
     raise ValueError(f"unknown matchmaker kind: {kind!r}")

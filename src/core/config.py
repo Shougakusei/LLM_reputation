@@ -461,6 +461,16 @@ def _validate(d: dict) -> None:
     if judge is not None and "provider" not in judge:
         raise ValueError("judge block requires provider: the judge's model is configured separately")
 
+    from src.matchmaking import make_matchmaker
+
+    make_matchmaker(d["matchmaker"])  # raises on unknown
+    if d["matchmaker"] == "sequence":
+        # the subject meets one partner per round, in roster order
+        n_partners = sum(a.get("count", 1) for a in d["population"]["agents"]) - 1
+        if d["rounds"] > n_partners:
+            raise ValueError(f"matchmaker sequence: rounds ({d['rounds']}) exceeds the number "
+                             f"of partners after the subject ({n_partners})")
+
     from src.games.talk_rules import make_talk_rule
 
     make_talk_rule(d.get("game", {}).get("talk_stop_rule", "both_ready_latch"))  # raises on unknown
