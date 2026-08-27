@@ -184,16 +184,20 @@ population:
     - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_pragmatic}
 ```
 
-- `provider` — **required**, no default; the single LLM used by every agent. Model
-  variability between agents is not a research dimension, so it is one fixed frame per
-  episode (each agent's wording lives in its own `system_prompt`).
+- `provider` — two ways to assign models. **Population-wide**: set `population.provider`
+  and every agent uses it (agent-level `provider` blocks are ignored — the population wins).
+  **Per agent group**: omit `population.provider` and give every agent group its own
+  `provider:` block (same `ProviderCfg` shape, anchors work) — e.g. one subject model against
+  NPCs on another model; a group without one fails at load. Clients are cached per
+  `(base_url, model)`, and each agent's provider is stored with it in `agents.provider`.
 - `system_prompt` — the agent's **entire** system message, taken verbatim. Only `{id}` and
   the payoff placeholders are substituted; keep the canonical tag conventions
   (`<game>` / `<you>` / `<Name>`) so history rendering stays in sync. Optional — omitted, it
   defaults to `DEFAULT_SYSTEM_PROMPT`.
 - Per-agent keys: `count`, `play_strategy` (`direct` default, or `prediction`),
   `prediction_mapping` (`match` default, or `one_above`; only for prediction agents),
-  `system_prompt`. **Strategy is per-agent**, so a population can mix both.
+  `system_prompt`, `provider` (per-group model, see above). **Strategy is per-agent**, so a
+  population can mix both.
 
 Agent ids come from the name pools in one of three modes:
 

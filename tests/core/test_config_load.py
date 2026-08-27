@@ -244,7 +244,7 @@ def test_agent_spec_minimal_uses_default_system_prompt(tmp_path):
     assert cfg.population.agents[0].system_prompt == DEFAULT_SYSTEM_PROMPT
 
 
-def test_provider_required_at_population_level(tmp_path):
+def test_provider_required_somewhere(tmp_path):
     f = tmp_path / "no_provider.yaml"
     f.write_text(textwrap.dedent(
         """
@@ -257,7 +257,8 @@ def test_provider_required_at_population_level(tmp_path):
             - {persona: "p"}
         """
     ))
-    with pytest.raises(KeyError):                     # provider is required at the population level, no default
+    # no population.provider and no agent-level provider either -> fail fast
+    with pytest.raises(ValueError, match="provider"):
         load_episode(str(f))
 
 
@@ -987,3 +988,42 @@ def test_sequence_matchmaker_requires_enough_agents(tmp_path):
         load_episode(str(f))
     f.write_text(f.read_text().replace("rounds: 3", "rounds: 2"))
     assert load_episode(str(f)).matchmaker == "sequence"
+
+
+def test_agent_providers_used_when_population_provider_absent(tmp_path):
+    # Two ways to assign models: population.provider for everyone, or (when it is
+    # absent) a provider block on every agent group.
+    f = tmp_path / "per_agent.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 2
+        matchmaker: random
+        population:
+          kind: roster
+          agents:
+            - {count: 1, provider: {base_url: "http://subj/v1", model: "subject"}}
+            - {count: 1, provider: {base_url: "http://npc/v1", model: "npc"}}
+        """
+    ))
+    pop = load_episode(str(f)).population
+    assert pop.provider is None
+    assert [a.provider.model for a in pop.agents] == ["subject", "npc"]
+
+
+def test_missing_provider_anywhere_is_rejected(tmp_path):
+    f = tmp_path / "no_provider.yaml"
+    f.write_text(textwrap.dedent(
+        """
+        seed: 1
+        rounds: 2
+        matchmaker: random
+        population:
+          kind: roster
+          agents:
+            - {count: 1, provider: {base_url: "http://subj/v1", model: "subject"}}
+            - {count: 1}
+        """
+    ))
+    with pytest.raises(ValueError, match="provider"):
+        load_episode(str(f))

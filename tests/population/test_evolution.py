@@ -4,6 +4,8 @@ import random
 
 import pytest
 
+from dataclasses import replace
+
 from src.core.config import AgentSpec, EvolutionCfg, PopulationCfg, ProviderCfg
 from src.population import base as popbase
 from src.population import make_population
@@ -334,3 +336,39 @@ def test_inherit_is_deterministic_across_rebuilds():
             evolve(pop, cfg, random.Random(f"5:evolution:{r}"), r)
         rosters.append([(a.id, a.setup.system_prompt, a.setup.deceptive) for a in pop])
     assert rosters[0] == rosters[1]
+
+
+def test_inherit_newborn_keeps_dying_agents_provider_when_population_has_none():
+    own = ProviderCfg(base_url="http://own/v1", model="own")
+    other = ProviderCfg(base_url="http://other/v1", model="other")
+    cfg = _inherit_cfg()
+    cfg = replace(cfg, provider=None,
+                  agents=[replace(cfg.agents[0], provider=own)]
+                  + [replace(a, provider=other) for a in cfg.agents[1:]])
+    pop = _build(cfg)
+    rng = FakeRng(randoms=[0.1, 0.9, 0.9, 0.9], ranges=[0])   # the first agent dies
+    birth = evolve(pop, cfg, rng, round=2)[1]
+    assert birth["provider"]["model"] == "own"
+    assert pop.get(birth["agent"]).setup.provider_cfg == own
+
+
+def test_roll_newborn_takes_chosen_specs_provider_when_population_has_none():
+    own = ProviderCfg(base_url="http://own/v1", model="own")
+    other = ProviderCfg(base_url="http://other/v1", model="other")
+    cfg = _pop_cfg(decept_min=1, decept_max=4)
+    cfg = replace(cfg, provider=None,
+                  agents=[replace(cfg.agents[0], provider=other), replace(cfg.agents[1], provider=own)])
+    pop = _build(cfg)
+    rng = FakeRng(randoms=[0.9, 0.9, 0.9, 0.1], ranges=[0])   # the deceptive one dies -> forced deceptive
+    birth = evolve(pop, cfg, rng, round=2)[1]
+    assert birth["deceptive"] is True and birth["provider"]["model"] == "own"
+
+
+def test_population_provider_wins_for_newborns_too():
+    own = ProviderCfg(base_url="http://own/v1", model="own")
+    cfg = _inherit_cfg()
+    cfg = replace(cfg, agents=[replace(cfg.agents[0], provider=own)] + list(cfg.agents[1:]))
+    pop = _build(cfg)
+    rng = FakeRng(randoms=[0.1, 0.9, 0.9, 0.9], ranges=[0])
+    birth = evolve(pop, cfg, rng, round=2)[1]
+    assert birth["provider"]["model"] == "m"                  # population-wide provider

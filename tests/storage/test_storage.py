@@ -715,3 +715,20 @@ def test_hash_config_dict_strips_default_invincible_noise():
         a.pop("deceptive")
         a.pop("invincible")
     assert _hash_config_dict(d) == _hash_config_dict(stripped)
+
+
+def test_hash_config_dict_strips_none_agent_provider():
+    # agents[*].provider: None (the new default) must not perturb pre-feature hashes;
+    # a real override is a genuinely new design.
+    cfg = _cfg(seed=1)
+    d = asdict(cfg)
+    assert all(a["provider"] is None for a in d["population"]["agents"])
+    stripped = json.loads(json.dumps(d))
+    for a in stripped["population"]["agents"]:
+        a.pop("provider")
+    assert _hash_config_dict(d) == _hash_config_dict(stripped)
+    own = replace(cfg.population.agents[0],
+                  provider=ProviderCfg(base_url="http://own/v1", model="own"))
+    with_override = replace(cfg, population=replace(cfg.population,
+                                                    agents=[own] + list(cfg.population.agents[1:])))
+    assert _hash_config_dict(asdict(with_override)) != _hash_config_dict(d)

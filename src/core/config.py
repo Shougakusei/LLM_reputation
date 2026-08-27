@@ -322,6 +322,7 @@ class AgentSpec:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     deceptive: bool = False          # marks the spec whose agents count as deceptive for evolution
     invincible: bool = False         # evolution: this agent never dies (draw consumed, ignored)
+    provider: ProviderCfg | None = None   # used only when population.provider is absent
 
 
 @dataclass(frozen=True)
@@ -347,9 +348,12 @@ class EvolutionCfg:
 class PopulationCfg:
     kind: str
     agents: list[AgentSpec]          # each spec expanded by its `count`; total = sum(counts)
-    # The LLM provider, shared across the whole population (variation of the model between agents
+    # Two ways to assign models: this population-wide provider (used by EVERY agent when set,
+    # agent-level blocks are then ignored), or — when it is None — a provider on every
+    # agent spec (validated at load).
+    # (Original note: variation of the model between agents
     # is not needed — it's a fixed frame for the episode). Required, no default.
-    provider: ProviderCfg
+    provider: ProviderCfg | None
     # Optional human-name pools: if both are non-empty, agents are named "First Last" sampled
     # without repetition; otherwise they fall back to stable A1..An ids.
     first_name_pool: list[str] = field(default_factory=list)
@@ -425,13 +429,14 @@ def _population_cfg(d: dict) -> PopulationCfg:
                   prediction_mapping=a.get("prediction_mapping", "match"),
                   system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT),
                   deceptive=a.get("deceptive", False) if evolution is not None else False,
-                  invincible=a.get("invincible", False) if evolution is not None else False)
+                  invincible=a.get("invincible", False) if evolution is not None else False,
+                  provider=_provider_cfg(a["provider"]) if a.get("provider") else None)
         for a in d["agents"]
     ]
     return PopulationCfg(
         kind=d["kind"],
         agents=agents,
-        provider=_provider_cfg(d["provider"]),
+        provider=_provider_cfg(d["provider"]) if d.get("provider") else None,
         first_name_pool=d.get("first_name_pool", []),
         last_name_pool=d.get("last_name_pool", []),
         evolution=evolution,
@@ -456,6 +461,12 @@ def _validate(d: dict) -> None:
             )
         if strategy == "prediction":
             get_mapping(spec.get("prediction_mapping", "match"))  # raises on an unknown name
+
+    if not d["population"].get("provider"):
+        missing = [i for i, a in enumerate(d["population"]["agents"]) if not a.get("provider")]
+        if missing:
+            raise ValueError("population.provider is absent, so every agent group needs its own "
+                             f"provider block; missing in agents[{missing}]")
 
     judge = d.get("judge")
     if judge is not None and "provider" not in judge:

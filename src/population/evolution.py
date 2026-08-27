@@ -63,6 +63,7 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
             system_prompt = dead.setup.system_prompt
             play_strategy = dead.setup.play_strategy
             prediction_mapping = dead.setup.prediction_mapping
+            provider = pop_cfg.provider or dead.setup.provider_cfg
         else:
             d = sum(1 for a in pop if a.setup.deceptive)
             if d < ev.decept_min:
@@ -75,17 +76,18 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
             system_prompt = spec.system_prompt
             play_strategy = spec.play_strategy
             prediction_mapping = spec.prediction_mapping
+            provider = pop_cfg.provider or spec.provider
         if not pop.name_pool:
             raise NamePoolExhausted(
                 f"round {round}: name pool exhausted — enlarge the name pools; "
                 f"this run cannot be resumed past this point")
         name = pop.draw_name(rng)
         # newborns are always mortal: invincible is deliberately not passed (defaults False)
-        pop.add(AgentSetup(system_prompt, pop_cfg.provider,
+        pop.add(AgentSetup(system_prompt, provider,
                            play_strategy, prediction_mapping,
                            deceptive=deceptive),
                 agent_id=name)
         events.append({"type": "birth", "agent": name, "deceptive": deceptive,
                        "system_prompt": system_prompt,
-                       "provider": asdict(pop_cfg.provider)})
+                       "provider": asdict(provider)})
     return events

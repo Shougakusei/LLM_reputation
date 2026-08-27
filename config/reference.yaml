@@ -38,6 +38,7 @@ population:
       play_strategy: prediction        # the agent predicts the co-player's number...
       prediction_mapping: one_above    # ...and plays: match (copy it) | one_above (undercut it)
       system_prompt: *system_example
+      # provider: {...}                # per-group LLM: used only when population.provider is absent
 
   # Agent ids: both pools -> unique "First Last"; one pool -> the entry itself;
   # no pools -> A1..An. A non-empty pool must be unique and hold >= population size.
@@ -54,8 +55,9 @@ population:
   #   decept_min: 1       # roll mode only: deceptive count never pushed below this
   #   decept_max: 4       # roll mode only: replacements never push deceptive count above this
 
-  # One LLM provider shared by every agent (required). Any OpenAI-compatible
-  # /chat/completions endpoint (Together.ai, Ollama, vLLM, ...).
+  # The LLM for every agent (any OpenAI-compatible /chat/completions endpoint: Together.ai,
+  # Ollama, vLLM, ...). When set it applies to ALL agents (agent-level provider blocks are
+  # ignored); omit it to assign a provider per agent group instead (then every group needs one).
   provider:
     base_url: https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY   # NAME of the env var holding the key (read from .env)

@@ -238,3 +238,23 @@ def test_build_marks_invincible_per_spec(_stub_providers):
     )
     pop = RosterGenerator(cfg).build(random.Random(0))
     assert [a.setup.invincible for a in pop] == [False, True, True]
+
+
+def test_population_provider_wins_over_agent_providers(created):
+    own = ProviderCfg(base_url="http://subj/v1", model="subject")
+    specs = [AgentSpec(system_prompt="s", provider=own), _spec("p1", count=2)]
+    pop = make_population(_pop_cfg(specs)).build(random.Random(0))
+    assert all(a.setup.provider_cfg == _PROVIDER for a in pop)   # the agent-level block is ignored
+    assert len(created) == 1
+
+
+def test_agent_providers_used_when_population_has_none(created):
+    subj = ProviderCfg(base_url="http://subj/v1", model="subject")
+    npc = ProviderCfg(base_url="http://npc/v1", model="npc")
+    specs = [AgentSpec(system_prompt="s", provider=subj),
+             AgentSpec(system_prompt="n", count=2, provider=npc)]
+    pop = make_population(_pop_cfg(specs, provider=None)).build(random.Random(0))
+    a1, a2, a3 = pop.get("A1"), pop.get("A2"), pop.get("A3")
+    assert a1.setup.provider_cfg == subj and a2.setup.provider_cfg == npc
+    assert a1.provider is not a2.provider and a2.provider is a3.provider
+    assert len(created) == 2                             # one client per distinct provider
