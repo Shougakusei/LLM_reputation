@@ -362,13 +362,18 @@ provider_default: &default
   max_tokens: 1000
   reasoning: true                    # reasoning models (e.g. DeepSeek-V4-Pro); false = Non-think
   reasoning_effort: ""               # "" | high | max (sent only when non-empty)
+  stream: false                      # true = request an SSE stream (stream-only models such as
+                                     # Together's Qwen3.x-Plus/Max); folded into one reply
 ```
 
 `ProviderCfg` is OpenAI-compatible — point `base_url` at any `/chat/completions` endpoint
 (Together.ai in production, Ollama for smoke tests). `reasoning: false` sends
 `{"reasoning": {"enabled": false}}` (Together's Non-think for DeepSeek-V4-Pro); the default
 `true` sends nothing (non-reasoning models ignore the absent field). `reasoning_effort` is
-forwarded only when non-empty. The research sweep sets `reasoning: false` so every model
+forwarded only when non-empty. `stream: true` asks for a server-sent-event stream
+(`stream_options.include_usage` for the token counts) and the client folds the chunks into
+the same `Completion` — content, reasoning and usage — so the rest of the engine never sees
+a difference; it is the only way to use stream-only models. The research sweep sets `reasoning: false` so every model
 runs Non-think for a like-for-like comparison.
 
 ## Self-hosted models on Modal

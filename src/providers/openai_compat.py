@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
 
@@ -36,6 +37,7 @@ class OpenAICompatibleProvider:
         reasoning: bool = True,
         reasoning_effort: str = "",
         extra_body: dict | None = None,
+        stream: bool = False,
         client: httpx.AsyncClient | None = None,
     ):
         self._url = base_url.rstrip("/") + "/chat/completions"
@@ -47,6 +49,7 @@ class OpenAICompatibleProvider:
         self._reasoning = reasoning
         self._reasoning_effort = reasoning_effort
         self._extra_body = extra_body or {}
+        self._stream = stream
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=timeout_s, write=30.0, pool=10.0)
@@ -77,6 +80,9 @@ class OpenAICompatibleProvider:
             payload["reasoning"] = {"enabled": False}
         if self._reasoning_effort:
             payload["reasoning_effort"] = self._reasoning_effort
+        if self._stream:
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}   # usage arrives in the last chunk
         # extra_body — provider-specific fields (e.g. vLLM chat_template_kwargs); merged
         # last so the config can override the base fields when needed.
         payload.update(self._extra_body)
@@ -85,7 +91,7 @@ class OpenAICompatibleProvider:
         # to extract the content.
         resp, attempts = await self._post_with_retries(payload)   # raises already carry request+attempts
         raw_text = resp.text
-        data = resp.json()
+        data = self._decode(resp)
         content = data["choices"][0]["message"].get("content")    # extractability guaranteed by the gate
         usage = data.get("usage") or {}
         pt = int(usage.get("prompt_tokens", 0))
@@ -103,6 +109,10 @@ class OpenAICompatibleProvider:
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+    def _decode(self, resp: httpx.Response) -> dict:
+        """The response as one OpenAI-shaped dict: parsed JSON, or the folded SSE stream."""
+        return _fold_sse(resp.text) if self._stream else resp.json()
 
     async def _post_with_retries(self, payload: dict) -> tuple[httpx.Response, tuple[HttpAttempt, ...]]:
         """Make the request with retries. Return (resp with a valid JSON body, retry attempts).
@@ -130,7 +140,7 @@ class OpenAICompatibleProvider:
                 code = resp.status_code
                 if code < 400:
                     try:
-                        data = resp.json()                       # gate: is the body extractable?
+                        data = self._decode(resp)                # gate: is the body extractable?
                         data["choices"][0]["message"].get("content")
                     except ValueError:
                         last_exc = ProviderParseError("response was not valid JSON")
@@ -177,8 +187,42 @@ def make_provider(
     return OpenAICompatibleProvider(
         cfg.base_url, api_key, cfg.model, timeout_s=cfg.timeout_s,
         reasoning=cfg.reasoning, reasoning_effort=cfg.reasoning_effort,
-        extra_body=cfg.extra_body, client=client
+        extra_body=cfg.extra_body, stream=cfg.stream, client=client
     )
+
+
+def _fold_sse(text: str) -> dict:
+    """Fold an SSE chat stream into one OpenAI-shaped response dict.
+
+    Raises ValueError (like a broken JSON body) when the text holds no `data:` chunks.
+    """
+    content: list[str] = []
+    reasoning: list[str] = []
+    usage: dict = {}
+    seen = False
+    for line in text.splitlines():
+        if not line.startswith("data:"):
+            continue
+        chunk = line[5:].strip()
+        if chunk == "[DONE]":
+            continue
+        d = json.loads(chunk)
+        seen = True
+        if d.get("usage"):
+            usage = d["usage"]
+        for choice in d.get("choices") or []:
+            delta = choice.get("delta") or {}
+            if delta.get("content"):
+                content.append(delta["content"])
+            r = delta.get("reasoning") or delta.get("reasoning_content")
+            if r:
+                reasoning.append(r)
+    if not seen:
+        raise ValueError("no SSE data chunks in the response")
+    message: dict = {"role": "assistant", "content": "".join(content)}
+    if reasoning:
+        message["reasoning"] = "".join(reasoning)
+    return {"choices": [{"message": message}], "usage": usage}
 
 
 def _backoff_delay(attempt: int) -> float:

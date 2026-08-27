@@ -414,3 +414,77 @@ async def test_make_provider_stub_key_when_unset(monkeypatch):
         assert p._headers["Authorization"] == "Bearer sk-noauth"
     finally:
         await p.aclose()
+
+
+# ---- streaming mode (stream-only models: the SSE stream is folded into one Completion) ----
+
+def _sse_response(chunks, usage=None):
+    lines = ["data: " + json.dumps({"choices": [{"delta": c, "finish_reason": None}]}) for c in chunks]
+    if usage is not None:
+        lines.append("data: " + json.dumps({"choices": [], "usage": usage}))
+    lines.append("data: [DONE]")
+    return httpx.Response(200, text="\n\n".join(lines) + "\n",
+                          headers={"Content-Type": "text/event-stream"})
+
+
+async def test_stream_mode_sends_stream_flags_and_folds_chunks():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _sse_response([{"role": "assistant", "content": "hel"}, {"content": "lo"}],
+                             usage={"prompt_tokens": 7, "completion_tokens": 2})
+
+    c = await _call(_provider_with(handler, stream=True))
+    assert captured["body"]["stream"] is True
+    assert captured["body"]["stream_options"] == {"include_usage": True}
+    assert c.text == "hello" and (c.prompt_tokens, c.completion_tokens) == (7, 2)
+    assert c.raw["choices"][0]["message"]["content"] == "hello"
+    assert c.attempts[-1].response == "hello" and "data:" in c.attempts[-1].response_raw
+
+
+async def test_stream_mode_keeps_reasoning_out_of_content():
+    def handler(req):
+        return _sse_response([{"reasoning": "think"}, {"reasoning": "ing"}, {"content": "4"}])
+
+    c = await _call(_provider_with(handler, stream=True))
+    assert c.text == "4"
+    assert c.raw["choices"][0]["message"]["reasoning"] == "thinking"
+
+
+async def test_stream_mode_non_sse_body_is_retried(monkeypatch):
+    monkeypatch.setattr("asyncio.sleep", _no_sleep)
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        return httpx.Response(200, text="garbage")
+
+    with pytest.raises(ProviderUnavailable) as ei:
+        await _call(_provider_with(handler, stream=True))
+    assert calls["n"] == _MAX_ATTEMPTS
+    assert all(a.status == "bad_json" for a in ei.value.attempts)
+
+
+async def test_non_stream_mode_sends_no_stream_flags():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _ok_response()
+
+    await _call(_provider_with(handler))
+    assert "stream" not in captured["body"] and "stream_options" not in captured["body"]
+
+
+async def test_make_provider_threads_stream_from_cfg():
+    captured = {}
+
+    def handler(req):
+        captured["body"] = json.loads(req.content)
+        return _sse_response([{"content": "x"}])
+
+    cfg = ProviderCfg(base_url="http://x/v1", model="m", stream=True)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    c = await _call(make_provider(cfg, client=client))
+    assert captured["body"]["stream"] is True and c.text == "x"

@@ -20,6 +20,9 @@ class ProviderCfg:
     # reasoning_effort (if non-empty) -> {"reasoning_effort": "<val>"} ("high"/"max"; groundwork for the future).
     reasoning: bool = True
     reasoning_effort: str = ""
+    # stream=True -> the request asks for an SSE stream (stream-only models, e.g. Together's
+    # Qwen3.x-Plus/Max) and the client folds the chunks into one ordinary Completion.
+    stream: bool = False
     # Arbitrary extra payload fields, sent as-is (provider-specific). E.g.,
     # disabling thinking for Qwen3 on vLLM: {"chat_template_kwargs": {"enable_thinking": false}}.
     # Merged into the payload last and can override the base fields.

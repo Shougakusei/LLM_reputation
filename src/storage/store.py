@@ -45,8 +45,8 @@ def _hash_config_dict(d: dict) -> str:
     (`population.evolution: None` and `deceptive: False` on each agent spec) so that
     evolution-free configs keep the same config_hash they had before evolution existed.
     Evolution-enabled configs keep both keys — that's a genuinely new design. Similarly,
-    `invincible: False`, `provider: None` and `choice_mapping: "match"` on each agent spec are
-    stripped for backward compatibility. Within
+    `invincible: False`, `provider: None` and `choice_mapping: "match"` on each agent spec, and
+    `stream: False` inside provider blocks, are stripped for backward compatibility. Within
     `population.evolution`, also strips `replacement: "roll"` (the default) and `None`-valued
     `decept_min`/`decept_max` so pre-feature evolution configs keep their hash."""
     d = dict(d)
@@ -76,11 +76,22 @@ def _hash_config_dict(d: dict) -> str:
                         drop.add("choice_mapping")
                     if drop:
                         a = {k: v for k, v in a.items() if k not in drop}
+                    if isinstance(a.get("provider"), dict):
+                        a = {**a, "provider": _strip_default_stream(a["provider"])}
                 new_agents.append(a)
             population["agents"] = new_agents
+        if isinstance(population.get("provider"), dict):
+            population["provider"] = _strip_default_stream(population["provider"])
         d["population"] = population
     canon = json.dumps(d, sort_keys=True)               # stable across processes
     return hashlib.sha256(canon.encode()).hexdigest()[:16]
+
+
+def _strip_default_stream(provider: dict) -> dict:
+    """`stream: False` is the pre-feature default — drop it so old configs keep their hash."""
+    if provider.get("stream"):
+        return provider
+    return {k: v for k, v in provider.items() if k != "stream"}
 
 
 def _config_hash(cfg: EpisodeCfg) -> str:

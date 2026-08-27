@@ -742,3 +742,23 @@ def test_hash_config_dict_strips_default_choice_mapping():
     for a in stripped["population"]["agents"]:
         a.pop("choice_mapping")
     assert _hash_config_dict(d) == _hash_config_dict(stripped)
+
+
+def test_hash_config_dict_strips_default_provider_stream():
+    # provider.stream: False (new default) must not perturb pre-feature hashes — at the
+    # population level and inside agent-group providers.
+    cfg = _cfg(seed=1)
+    own = replace(cfg.population.agents[0],
+                  provider=ProviderCfg(base_url="http://own/v1", model="own"))
+    cfg = replace(cfg, population=replace(cfg.population,
+                                          agents=[own] + list(cfg.population.agents[1:])))
+    d = asdict(cfg)
+    assert d["population"]["provider"]["stream"] is False
+    assert d["population"]["agents"][0]["provider"]["stream"] is False
+    stripped = json.loads(json.dumps(d))
+    stripped["population"]["provider"].pop("stream")
+    stripped["population"]["agents"][0]["provider"].pop("stream")
+    assert _hash_config_dict(d) == _hash_config_dict(stripped)
+    streaming = json.loads(json.dumps(d))
+    streaming["population"]["provider"]["stream"] = True
+    assert _hash_config_dict(streaming) != _hash_config_dict(d)
