@@ -732,3 +732,13 @@ def test_hash_config_dict_strips_none_agent_provider():
     with_override = replace(cfg, population=replace(cfg.population,
                                                     agents=[own] + list(cfg.population.agents[1:])))
     assert _hash_config_dict(asdict(with_override)) != _hash_config_dict(d)
+
+
+def test_hash_config_dict_strips_default_choice_mapping():
+    cfg = _cfg(seed=1)
+    d = asdict(cfg)
+    assert all(a["choice_mapping"] == "match" for a in d["population"]["agents"])
+    stripped = json.loads(json.dumps(d))
+    for a in stripped["population"]["agents"]:
+        a.pop("choice_mapping")
+    assert _hash_config_dict(d) == _hash_config_dict(stripped)

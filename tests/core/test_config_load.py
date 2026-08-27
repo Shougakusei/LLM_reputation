@@ -1027,3 +1027,30 @@ def test_missing_provider_anywhere_is_rejected(tmp_path):
     ))
     with pytest.raises(ValueError, match="provider"):
         load_episode(str(f))
+
+
+def test_choice_mapping_loads_and_is_validated(tmp_path):
+    f = tmp_path / "cm.yaml"
+    body = textwrap.dedent(
+        """
+        seed: 1
+        rounds: 2
+        matchmaker: random
+        population:
+          kind: roster
+          provider: {base_url: "http://x/v1", model: "m"}
+          agents:
+            - {count: 1, choice_mapping: one_above}
+            - {count: 1}
+        """
+    )
+    f.write_text(body)
+    specs = load_episode(str(f)).population.agents
+    assert [s.choice_mapping for s in specs] == ["one_above", "match"]
+    f.write_text(body.replace("one_above", "two_above"))
+    with pytest.raises(ValueError):
+        load_episode(str(f))
+    f.write_text(body.replace("choice_mapping: one_above",
+                              "play_strategy: prediction, choice_mapping: one_above"))
+    with pytest.raises(ValueError, match="choice_mapping"):
+        load_episode(str(f))

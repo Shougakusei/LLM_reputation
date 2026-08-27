@@ -196,8 +196,11 @@ population:
   defaults to `DEFAULT_SYSTEM_PROMPT`.
 - Per-agent keys: `count`, `play_strategy` (`direct` default, or `prediction`),
   `prediction_mapping` (`match` default, or `one_above`; only for prediction agents),
-  `system_prompt`, `provider` (per-group model, see above). **Strategy is per-agent**, so a
-  population can mix both.
+  `choice_mapping` (`match` default, or `one_above`; only for direct agents — the number the
+  agent decided is mapped before it is played: `one_above` turns an honest agent into an
+  undercutter by construction, +1 mod 10; the record, the payoff and the agent's own memory
+  all carry the played number, the agent itself is never told), `system_prompt`, `provider`
+  (per-group model, see above). **Strategy is per-agent**, so a population can mix both.
 
 Agent ids come from the name pools in one of three modes:
 

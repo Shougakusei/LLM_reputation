@@ -35,3 +35,18 @@ async def test_direct_rationale_off_asks_bare_number_and_drops_text():
     assert d.rationale == ""                      # rationale=false -> bare template, rationale not stored
     _, messages = agent.provider.calls[0]
     assert "rationale" not in messages[-1].content.lower()
+
+
+async def test_direct_choice_mapping_shifts_the_played_number():
+    # choice_mapping one_above: the agent decides honestly, the engine plays +1 mod 10.
+    from src.strategy.mappings import get_mapping
+    agent = _agent(['{"number": 9}'])
+    d = await DirectStrategy(GameCfg(), get_mapping("one_above")).decide(agent, "A2", round=1, feed="")
+    assert d.number == 0                          # 9 -> 0 on the cycle
+
+
+async def test_make_strategy_threads_choice_mapping():
+    from src.strategy.base import make_strategy
+    agent = _agent(['{"number": 4}'])
+    st = make_strategy("direct", "match", GameCfg(), choice_mapping="one_above")
+    assert (await st.decide(agent, "A2", round=1, feed="")).number == 5

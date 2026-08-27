@@ -389,3 +389,18 @@ async def test_parse_exhaustion_aborts_pairing_as_unfinished():
     statuses = [c.status for c in rec.llm_calls]
     assert "ok" in statuses                       # a's decide succeeded
     assert statuses.count("parse_error") == 3     # b's three failed attempts logged
+
+
+async def test_choice_mapping_undercut_is_what_gets_scored_stored_and_remembered():
+    # An honest agent with choice_mapping=one_above: it says 4, the engine plays 5 —
+    # the record, the payoff and its own memory all carry the played number.
+    from src.core.config import ProviderCfg
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    cfg = ProviderCfg(base_url="http://x/v1", model="m")
+    a = Agent("A1", AgentSetup("You are A1.", cfg, choice_mapping="one_above"),
+              ScriptedProvider([_decide(4)]))
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, 1)
+    assert (rec.a_number, rec.b_number) == (5, 4)
+    assert rec.outcome == "DC" and (rec.a_payoff, rec.b_payoff) == (5.0, 0.0)
+    assert a.memory.entries[0].my_number == 5

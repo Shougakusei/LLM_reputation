@@ -258,3 +258,10 @@ def test_agent_providers_used_when_population_has_none(created):
     assert a1.setup.provider_cfg == subj and a2.setup.provider_cfg == npc
     assert a1.provider is not a2.provider and a2.provider is a3.provider
     assert len(created) == 2                             # one client per distinct provider
+
+
+def test_choice_mapping_threaded_to_agent_setup(created):
+    specs = [AgentSpec(system_prompt="s", choice_mapping="one_above"), _spec("p1")]
+    pop = make_population(_pop_cfg(specs)).build(random.Random(0))
+    assert pop.get("A1").setup.choice_mapping == "one_above"
+    assert pop.get("A2").setup.choice_mapping == "match"

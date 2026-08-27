@@ -134,6 +134,7 @@ class AgentSetup:
     # object is assembled at the game level, see ReputationPD._strategy_for).
     play_strategy: str = "direct"        # "direct" | "prediction"
     prediction_mapping: str = "match"    # predict->choice mapping (prediction strategy only)
+    choice_mapping: str = "match"        # own choice -> played number (direct strategy only)
     deceptive: bool = False              # evolution: this agent counts as deceptive (see EvolutionCfg)
     invincible: bool = False             # evolution: this agent never dies (see EvolutionCfg)
 

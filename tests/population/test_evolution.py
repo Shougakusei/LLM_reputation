@@ -372,3 +372,12 @@ def test_population_provider_wins_for_newborns_too():
     rng = FakeRng(randoms=[0.1, 0.9, 0.9, 0.9], ranges=[0])
     birth = evolve(pop, cfg, rng, round=2)[1]
     assert birth["provider"]["model"] == "m"                  # population-wide provider
+
+
+def test_inherit_newborn_keeps_choice_mapping():
+    cfg = _inherit_cfg()
+    cfg = replace(cfg, agents=[replace(cfg.agents[0], choice_mapping="one_above")] + list(cfg.agents[1:]))
+    pop = _build(cfg)
+    rng = FakeRng(randoms=[0.1, 0.9, 0.9, 0.9], ranges=[0])
+    birth = evolve(pop, cfg, rng, round=2)[1]
+    assert pop.get(birth["agent"]).setup.choice_mapping == "one_above"

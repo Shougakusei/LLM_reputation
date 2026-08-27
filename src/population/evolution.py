@@ -63,6 +63,7 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
             system_prompt = dead.setup.system_prompt
             play_strategy = dead.setup.play_strategy
             prediction_mapping = dead.setup.prediction_mapping
+            choice_mapping = dead.setup.choice_mapping
             provider = pop_cfg.provider or dead.setup.provider_cfg
         else:
             d = sum(1 for a in pop if a.setup.deceptive)
@@ -76,6 +77,7 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
             system_prompt = spec.system_prompt
             play_strategy = spec.play_strategy
             prediction_mapping = spec.prediction_mapping
+            choice_mapping = spec.choice_mapping
             provider = pop_cfg.provider or spec.provider
         if not pop.name_pool:
             raise NamePoolExhausted(
@@ -85,7 +87,7 @@ def evolve(pop: Population, pop_cfg, rng, round: int) -> list[dict]:
         # newborns are always mortal: invincible is deliberately not passed (defaults False)
         pop.add(AgentSetup(system_prompt, provider,
                            play_strategy, prediction_mapping,
-                           deceptive=deceptive),
+                           choice_mapping=choice_mapping, deceptive=deceptive),
                 agent_id=name)
         events.append({"type": "birth", "agent": name, "deceptive": deceptive,
                        "system_prompt": system_prompt,

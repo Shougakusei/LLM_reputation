@@ -6,19 +6,24 @@ from src.core.agent import Agent, Phase, PhaseKind
 from src.core.config import GameCfg
 from src.games.prompts import decide_context
 from src.strategy.base import Decision
+from src.strategy.mappings import PredictionMapping, get_mapping
 
 
 class DirectStrategy:
     """Strategy of picking a number directly, without a prediction step."""
 
-    def __init__(self, game_cfg: GameCfg):
+    def __init__(self, game_cfg: GameCfg, mapping: PredictionMapping | None = None):
         """Initialize the strategy with the game configuration.
 
         Args:
             game_cfg: Game configuration (static decide_prompt template + rationale flag).
+            mapping: Decided number -> played number (default: played as decided). The
+                agent never learns about it: its memory and the record carry the played
+                number, so an honest agent can be undercut by construction.
         """
         self._game = game_cfg
         self._rationale = game_cfg.rationale
+        self._mapping = mapping or get_mapping("match")
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
                      feed: str, reason: str = "") -> Decision:
@@ -40,7 +45,7 @@ class DirectStrategy:
                   game_cfg=self._game)
         )
         return Decision(
-            number=res.data["number"],
+            number=self._mapping(res.data["number"]),
             rationale=res.data["rationale"] if self._rationale else "",
             usage=res.usage,
             calls=res.calls,

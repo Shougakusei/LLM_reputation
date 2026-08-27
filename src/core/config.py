@@ -317,6 +317,9 @@ class AgentSpec:
     count: int = 1                   # how many agents of this type to build
     play_strategy: str = "direct"        # "direct" | "prediction" — this spec's play strategy
     prediction_mapping: str = "match"    # predict->choice mapping (only when play_strategy="prediction")
+    # direct strategy only: the number the agent decided -> the number actually played
+    # ("one_above" = an honest agent whose choice is undercut by construction, +1 mod 10)
+    choice_mapping: str = "match"
     # The agent's full system prompt (ONE string). There's no longer a separate persona/identity_prompt/rules — it's all here.
     # {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns} are substituted; usually set via a YAML anchor.
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
@@ -427,6 +430,7 @@ def _population_cfg(d: dict) -> PopulationCfg:
         AgentSpec(count=a.get("count", 1),
                   play_strategy=a.get("play_strategy", "direct"),
                   prediction_mapping=a.get("prediction_mapping", "match"),
+                  choice_mapping=a.get("choice_mapping", "match"),
                   system_prompt=a.get("system_prompt", DEFAULT_SYSTEM_PROMPT),
                   deceptive=a.get("deceptive", False) if evolution is not None else False,
                   invincible=a.get("invincible", False) if evolution is not None else False,
@@ -461,6 +465,11 @@ def _validate(d: dict) -> None:
             )
         if strategy == "prediction":
             get_mapping(spec.get("prediction_mapping", "match"))  # raises on an unknown name
+        choice_mapping = spec.get("choice_mapping", "match")
+        get_mapping(choice_mapping)                                # raises on an unknown name
+        if strategy == "prediction" and choice_mapping != "match":
+            raise ValueError("choice_mapping applies to the direct strategy only "
+                             "(prediction agents map via prediction_mapping)")
 
     if not d["population"].get("provider"):
         missing = [i for i, a in enumerate(d["population"]["agents"]) if not a.get("provider")]

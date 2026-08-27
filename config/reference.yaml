@@ -33,6 +33,8 @@ population:
   agents:
     - count: 2
       play_strategy: direct            # the agent picks its number itself (default)
+      choice_mapping: match            # direct only: decided -> played number; one_above =
+                                       # honest agent undercut by construction (+1 mod 10)
       system_prompt: *system_example
     - count: 2
       play_strategy: prediction        # the agent predicts the co-player's number...

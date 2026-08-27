@@ -102,6 +102,8 @@ A failed LLM call in any phase aborts the pairing (see *Failure handling*).
 `PlayStrategy` (Protocol, `strategy/base.py`) maps round state → `Decision`.
 
 - **direct** (`strategy/direct.py`): one `DECIDE` phase; the agent picks the number itself.
+  An optional `choice_mapping` (`AgentSpec`, same table as below) maps the decided number to
+  the played one — `one_above` undercuts by construction while the agent stays honest.
 - **prediction** (`strategy/prediction.py`): one `PREDICT` phase (the agent predicts the
   partner's number), then a pure `PredictionMapping` (`strategy/mappings.py`) turns that
   prediction into its own choice — `match` (copy → cooperate) or `one_above` (rational
@@ -110,7 +112,7 @@ A failed LLM call in any phase aborts the pairing (see *Failure handling*).
 **Strategy is per-agent.** It lives on `AgentSpec`/`AgentSetup` as plain strings (`core`
 does not import `strategy`), so one population can mix direct and prediction agents. The
 game builds each agent's strategy from `agent.setup` and caches it by
-`(play_strategy, prediction_mapping)`; `make_strategy(...)` is the factory. Add one:
+`(play_strategy, prediction_mapping, choice_mapping)`; `make_strategy(...)` is the factory. Add one:
 implement the Protocol, register it in `make_strategy`, and extend `_validate` if it
 needs validation.
 

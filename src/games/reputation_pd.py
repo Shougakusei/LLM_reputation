@@ -25,16 +25,17 @@ class ReputationPD:
         # (play_strategy, prediction_mapping). An explicitly passed `strategy` is a uniform
         # override (for tests and the simple case) on top of the per-agent one.
         self._override = strategy
-        self._strategy_cache: dict[tuple[str, str], PlayStrategy] = {}
+        self._strategy_cache: dict[tuple[str, str, str], PlayStrategy] = {}
 
     def _strategy_for(self, agent: Agent) -> PlayStrategy:
         if self._override is not None:
             return self._override
-        key = (agent.setup.play_strategy, agent.setup.prediction_mapping)
+        key = (agent.setup.play_strategy, agent.setup.prediction_mapping,
+               agent.setup.choice_mapping)
         st = self._strategy_cache.get(key)
         if st is None:
             from src.strategy.base import make_strategy  # lazy import: games<->strategy cycle
-            st = make_strategy(key[0], key[1], self.cfg)
+            st = make_strategy(key[0], key[1], self.cfg, choice_mapping=key[2])
             self._strategy_cache[key] = st
         return st
 

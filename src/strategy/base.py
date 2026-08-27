@@ -36,13 +36,15 @@ class PlayStrategy(Protocol):
                      feed: str, reason: str = "") -> Decision: ...
 
 
-def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg) -> PlayStrategy:
+def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg,
+                  choice_mapping: str = "match") -> PlayStrategy:
     """Build a strategy from its name (the strategy lives on the agent, see AgentSpec).
 
     Args:
         play_strategy: "direct" | "prediction".
         prediction_mapping: name of the predict->choice mapping (needed only for prediction).
         game_cfg: GameCfg — prompt templates for the decide/predict phases.
+        choice_mapping: name of the decided->played mapping (direct only; "match" = as is).
 
     Returns:
         Strategy instance matching the given name.
@@ -55,7 +57,7 @@ def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg) -> Play
     from src.strategy.prediction import PredictionStrategy
 
     if play_strategy == "direct":
-        return DirectStrategy(game_cfg)
+        return DirectStrategy(game_cfg, get_mapping(choice_mapping))
     if play_strategy == "prediction":
         return PredictionStrategy(get_mapping(prediction_mapping), game_cfg)
     raise ValueError(f"unknown play strategy: {play_strategy!r}")
