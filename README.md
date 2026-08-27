@@ -84,8 +84,12 @@ uv run python judge_runs.py             # backfill LLM-judge verdicts over store
 uv run python keyword_judge.py <term>   # count distinct speakers of a term (LLM-free judge)
 uv run python find_gossip.py            # find "gossip" — mentions of a third player in cheap talk
 uv run python collect_stats.py          # aggregate verdicts by design -> stats.json + stats.csv
+uv run python infection_validation.py   # infection study: does the cooperator prompt hold? (100 one-round games)
+uv run python infection_research.py     # infection study: one subject vs a fixed sequence of fresh NPCs
+uv run python infection_stats.py        # infection study: subject action per round position -> JSON
 uv run python plot_stats.py             # stats.json -> stats.png (Wilson CI bars)
 uv run python export_runs.py            # split a DB into per-run .db files
+modal deploy modal_vllm.py              # self-host an open model on Modal GPUs (see docs/configuration.md)
 ```
 
 ### The LLM judge

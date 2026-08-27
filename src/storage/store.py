@@ -98,7 +98,8 @@ class Storage:
     seam — the engine is unchanged. See agent-games-logger-plan.md."""
 
     def __init__(self, db_path: str):
-        self._conn = sqlite3.connect(db_path)
+        # busy timeout: sweeps run several episodes concurrently against one DB (WAL)
+        self._conn = sqlite3.connect(db_path, timeout=30)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         init_schema(self._conn)

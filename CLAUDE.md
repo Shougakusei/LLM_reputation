@@ -67,6 +67,9 @@ uv run python judge_runs.py                           # backfill LLM-judge verdi
 uv run python keyword_judge.py <term>                 # deterministic term-mention judge
 uv run python find_gossip.py                          # third-player mentions in cheap talk
 uv run python collect_stats.py                        # aggregate verdicts -> stats.json + stats.csv
+uv run python infection_validation.py [--report]      # infection study: 100×1-round cooperator check -> report
+uv run python infection_research.py                   # infection study: subject models × NPC sequences × repeats
+uv run python infection_stats.py                      # infection study: subject action per round -> infection_stats.json
 uv run python plot_stats.py                           # stats.json -> stats.png (Wilson CI bars)
 uv run python export_runs.py                          # split a DB into per-run .db files
 ```
