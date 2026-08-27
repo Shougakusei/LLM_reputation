@@ -30,18 +30,22 @@ DB = "db/infection.db"
 SPLIT_DIR = _out_dir_for(DB)
 REPEATS = 10
 PARALLEL = 8
-SUBJECTS = [                     # (label for run names, Ollama/Together model id)
-    ("gpt-oss-120b", "gpt-oss:120b"),
-    ("qwen3-8b", "qwen3:8b"),
+SUBJECTS = [                     # (label for run names, provider fields overriding the config's subject_model)
+    # ("llama-3.3-70b", {"model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"}),
+    ("deepseek-v4-flash", {"model": "deepseek-ai/DeepSeek-V4-Flash-0731"}),
+    # V4-Pro-0813 ignores reasoning.enabled=false on Together; thinking is switched off via extra_body
+    ("deepseek-v4-pro-0813", {"model": "deepseek-ai/DeepSeek-V4-Pro-0813",
+                              "extra_body": {"thinking": {"type": "disabled"}}}),
+    # stream-only or local models: add "stream": True / "base_url": "http://localhost:11434/v1", ...
 ]
 SEQUENCES = ["XXXXXXX", "PXXXXXX", "XPXXXXX", "PPXXXXX"]   # X = cooperator, P = defector
 
 
-def cfg_for(model_id: str, sequence: str) -> EpisodeCfg:
-    """Fresh config (new random seed) with the subject model and NPC sequence swapped in."""
+def cfg_for(provider_fields: dict, sequence: str) -> EpisodeCfg:
+    """Fresh config (new random seed) with the subject provider and NPC sequence swapped in."""
     cfg = load_episode(CONFIG)
     specs = cfg.population.agents
-    subject = replace(specs[0], provider=replace(specs[0].provider, model=model_id))
+    subject = replace(specs[0], provider=replace(specs[0].provider, **provider_fields))
     cooperator = replace(next(s for s in specs[1:] if s.choice_mapping == "match"), count=1)
     defector = replace(cooperator, choice_mapping="one_above")
     npcs = [defector if ch == "P" else cooperator for ch in sequence]
@@ -61,8 +65,8 @@ async def _main() -> None:
     st = Storage(DB)
     try:
         unfinished = st.unfinished_runs()
-        missing = [(label, model_id, sequence, f"{label} {sequence} {i}")
-                   for label, model_id in SUBJECTS for sequence in SEQUENCES
+        missing = [(label, fields, sequence, f"{label} {sequence} {i}")
+                   for label, fields in SUBJECTS for sequence in SEQUENCES
                    for i in range(1, REPEATS + 1)
                    if st.run_id_by_name(f"{label} {sequence} {i}") is None]
     finally:
@@ -75,11 +79,11 @@ async def _main() -> None:
             await resume_run(run_id, DB, quiet=True)
             _split_off(run_id)
 
-    async def play(model_id, sequence, name):
+    async def play(fields, sequence, name):
         async with sem:
             print(f"calculating {name}")
             t0 = time.monotonic()
-            run_id = await run(cfg_for(model_id, sequence), DB, name, quiet=True)
+            run_id = await run(cfg_for(fields, sequence), DB, name, quiet=True)
             _split_off(run_id)
             print(f"done {name} {time.monotonic() - t0:.1f}s")
 

@@ -29,14 +29,14 @@ population:
     You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
 
     How each round works:
-    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both initiate its closing or after {max_talk_turns} messages sent in total.
+    - At the beginning of the round a chat between you and another player is open. You may exchange messages till you both decide to close the chat or {max_talk_turns} messages have been sent in total.
     - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
 
     Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
-    - Equal numbers: you each score {R}.
-    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T}, it - {S}.
-    - Your co-player's number is exactly one higher than yours: it scores {T}, you - {S}.
-    - Any other case: you each score {P}.
+    - Equal numbers: you each score {R} points.
+    - Your number is exactly one higher than your co-player's (e.g. 4 over 3, or 0 over 9): you score {T} points, it - {S}.
+    - Your co-player's number is exactly one higher than yours: it scores {T} points, you - {S}.
+    - Any other case: you each score {P} point.
 
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
@@ -44,7 +44,7 @@ population:
   agents:
     - {count: 2, system_prompt: *system_cooperator}
   kind: roster
-  first_name_pool: [Player 348, Player 712]
+  first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394, Player 152, Player 961, Player 287, Player 534, Player 618, Player 773, Player 409, Player 856, Player 321, Player 697]
 
 # ── Game (GameCfg) ────────────────────────────────────────
 game:
@@ -58,7 +58,7 @@ game:
   msg_self: <you>{text}</you>
   msg_partner: <{partner}>{text}</{partner}>
 
-  reason_limit: the messages number limit has been reached
+  reason_limit: the message limit has been reached
   reason_agreed: both players agreed to stop
 
   # Paragraph whose fragments are all empty vanishes whole (first round).
@@ -76,7 +76,7 @@ game:
     {feed}
     <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
   talk_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}
+    <game>Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}</game>
 
   decide_prompt: |-
     {recent_rounds}
@@ -86,13 +86,13 @@ game:
     {feed}
     <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
   decide_correction: |-
-    Respond with ONLY valid JSON, nothing else: {"number": <0-9>}
+    <game>Respond with ONLY valid JSON, nothing else: {"number": <0-9>}</game>
 
   history_prompt: |-
     <game>Round {round} with {partner}:
     The chat has been opened.</game>
     {feed}
     <game>The chat has been closed as {reason}. Choose the number.</game>
-    {my_number_line}
+    <you>{my_number}</you>
     <game>The choice has been accepted. {partner} chose {partner_number}. Payoffs: you = {payoff}, {partner} = {partner_payoff}.
     Your total score after round {round} is {total} points.</game>

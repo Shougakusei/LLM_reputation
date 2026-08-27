@@ -2,10 +2,12 @@
 # sequence and subject model?
 #   uv run python infection_stats.py [--db db/infection.db] [--json infection_stats.json]
 #
-# The subject is the first agent of every run (roster order). Its action in a round is
-# read off the two numbers: cooperate = same number, undercut = subject is one above the
-# NPC, betrayed = NPC is one above the subject, miscoord = anything else. Per
-# (model, sequence, round) the share of "cooperate" comes with a Wilson 95% interval.
+# Every row is about the SUBJECT (the first agent of the run, roster order). Its number
+# in a round is classified relative to the NPC's: same (matched), +1 (subject one above:
+# an undercut), -1 (subject one below: it deviated downward — against an honest
+# cooperator that is the subject breaking the deal, not the NPC), other (miscoordination).
+# The "vs" column says which NPC type it faced (a defector is one above by construction).
+# Per (model, sequence, round) the "same" share (`share`) comes with a Wilson 95% CI.
 
 from __future__ import annotations
 
@@ -16,17 +18,13 @@ from collections import Counter, defaultdict
 
 from src.stats.wilson import wilson_interval
 
-ACTIONS = ("cooperate", "undercut", "betrayed", "miscoord")
+ACTIONS = ("same", "+1", "-1", "other")
 
 
 def action(subject: int, npc: int) -> str:
-    if subject == npc:
-        return "cooperate"
-    if subject == (npc + 1) % 10:
-        return "undercut"
-    if npc == (subject + 1) % 10:
-        return "betrayed"
-    return "miscoord"
+    """The subject's number relative to the NPC's on the 0-9 cycle."""
+    d = (subject - npc) % 10
+    return {0: "same", 1: "+1", 9: "-1"}.get(d, "other")
 
 
 def collect(db: str) -> dict:
@@ -55,11 +53,11 @@ def summarize(table: dict) -> list[dict]:
     for (label, sequence), rounds in sorted(table.items()):
         for rnd, counts in sorted(rounds.items()):
             n = sum(counts.values())
-            k = counts["cooperate"]
+            k = counts["same"]
             lo, hi = wilson_interval(k, n)
             out.append({"model": label, "sequence": sequence, "round": rnd,
-                        "npc": "defector" if sequence[rnd - 1] == "P" else "cooperator",
-                        "n": n, "cooperate": k / n, "ci": [lo, hi],
+                        "vs": "defector" if sequence[rnd - 1] == "P" else "cooperator",
+                        "n": n, "share": k / n, "ci": [lo, hi],
                         **{a: counts[a] for a in ACTIONS}})
     return out
 
@@ -69,11 +67,11 @@ def print_table(rows: list[dict]) -> None:
     for r in rows:
         key = (r["model"], r["sequence"])
         if key != last:
-            print(f"\n{r['model']}  {r['sequence']}")
-            print("  round npc         n  cooperate [95% CI]     undercut betrayed miscoord")
+            print(f"\n{r['model']}  {r['sequence']}   (subject's number vs the NPC's)")
+            print("  round vs          n  same [95% CI]         +1   -1  other")
             last = key
-        print(f"  {r['round']:>5} {r['npc']:<10} {r['n']:>2}  {r['cooperate']:.2f} "
-              f"[{r['ci'][0]:.2f}, {r['ci'][1]:.2f}]     {r['undercut']:>8} {r['betrayed']:>8} {r['miscoord']:>8}")
+        print(f"  {r['round']:>5} {r['vs']:<10} {r['n']:>2}  {r['share']:.2f} "
+              f"[{r['ci'][0]:.2f}, {r['ci'][1]:.2f}]   {r['+1']:>4} {r['-1']:>4} {r['other']:>6}")
 
 
 def main() -> None:

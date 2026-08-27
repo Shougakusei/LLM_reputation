@@ -13,6 +13,7 @@ html/
 stats.json
 stats.csv
 stats.png
+infection_stats.json
 
 # Environment secrets (API keys)
 .env
