@@ -371,6 +371,38 @@ provider_default: &default
 forwarded only when non-empty. The research sweep sets `reasoning: false` so every model
 runs Non-think for a like-for-like comparison.
 
+## Self-hosted models on Modal
+
+Models that Together offers only as dedicated (non-serverless) endpoints — or any
+open-weights HF model — can be served from rented GPUs on [Modal](https://modal.com) with
+`modal_vllm.py` (vLLM behind an OpenAI-compatible API). Modal rents GPU containers, not
+models: the weights are downloaded once into a Modal volume; billing is per GPU-second
+while a container is up. The engine needs nothing new — it is just another
+`/chat/completions` endpoint:
+
+```bash
+pip install modal && modal setup                                   # one-time, outside the venv
+modal secret create huggingface-secret HF_TOKEN=hf_...              # gated weights
+modal secret create vllm-api-key VLLM_API_KEY=<long random string>
+MODEL="Qwen/Qwen3-235B-A22B-Instruct-2507-FP8" GPU="H100:4" MIN_CONTAINERS=1 modal deploy modal_vllm.py
+```
+
+```yaml
+provider:
+  base_url: https://<workspace>--llm-reputation-vllm-serve.modal.run/v1   # printed by the deploy
+  api_key_env: VLLM_API_KEY          # the same string, in .env
+  model: Qwen/Qwen3-235B-A22B-Instruct-2507-FP8     # = --served-model-name (the HF id)
+  timeout_s: 300                     # a cold container loads weights for minutes; retries cover it
+```
+
+Knobs (env vars at deploy time): `MODEL`, `GPU` (`H100`, `H100:4`, `A100-80GB:2`, …),
+`TP` (tensor parallel, defaults to the GPU count), `MAX_MODEL_LEN`, `MIN_CONTAINERS`
+(`1` = keep one warm for the whole sweep, `0` = scale to zero when idle),
+`SCALEDOWN_MINUTES`, `VLLM_VERSION`. Rule of thumb: a 70B FP8 model fits 1–2 H100, a
+235B FP8 model needs 4; our sweeps use the GPU lightly (≤ `max_concurrency` pairings at a
+time), so per-token cost is well above serverless pricing — use it for models serverless
+does not have.
+
 ## Adding a config knob
 
 1. Add the field to the relevant frozen dataclass in `src/core/config.py`.
