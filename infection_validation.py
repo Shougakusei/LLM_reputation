@@ -3,8 +3,12 @@
 #   uv run python infection_validation.py --report        # report only (no LLM calls)
 #   uv run python infection_validation.py --parallel 8    # concurrent runs (default PARALLEL)
 #
-# Runs config/infection_validation.yaml (two cooperators, one round) N times as independent
-# runs named "cooperator <i>", resuming aborted ones first — idempotent, re-run to continue.
+# Runs config/infection_validation.yaml (two cooperators, one round) N times per entry in
+# MODELS as independent runs named "<label> cooperator <i>" (the config's own provider has
+# an empty label -> "cooperator <i>"). An entry gives the provider fields of the two
+# cooperators: the same dict twice = one model, two different dicts = a cross-model game
+# (who opens the chat is random). Aborted runs are resumed first — idempotent, re-run to
+# continue.
 # Runs are played PARALLEL at a time (each is its own episode + DB writer; WAL + busy timeout
 # make that safe) so a rented GPU is not left idle. A run "holds" when both agents chose the
 # same number (outcome CC).
@@ -19,7 +23,9 @@ import time
 
 from dotenv import load_dotenv
 
-from src.core.config import load_episode
+from dataclasses import replace
+
+from src.core.config import EpisodeCfg, load_episode
 from src.runner import resume_run, run
 from src.stats.wilson import wilson_interval
 from src.storage import Storage
@@ -30,14 +36,42 @@ CONFIG = "config/infection_validation.yaml"
 DB = "db/infection_validation.db"
 GAMES = 100
 PARALLEL = 8
+QWEN = {}                        # the config's NPC provider as is (Qwen3.7-Plus)
+DEEPSEEK = {"model": "deepseek-ai/DeepSeek-V4-Pro-0813",
+            "extra_body": {"thinking": {"type": "disabled"}}}
+MODELS = [                       # (label for run names, (fields of cooperator A, fields of cooperator B))
+    ("", (QWEN, QWEN)),
+    ("deepseek-v4-pro-0813", (DEEPSEEK, DEEPSEEK)),
+    ("qwen3.7-plus-x-deepseek-v4-pro-0813", (QWEN, DEEPSEEK)),
+]
+
+
+def _name(label: str, i: int) -> str:
+    return f"{label} cooperator {i}".strip()
+
+
+def _label(name: str) -> str:
+    return name.rsplit(" cooperator ", 1)[0] if " cooperator " in name else "(config provider)"
+
+
+def cfg_for(pair: tuple[dict, dict]) -> EpisodeCfg:
+    cfg = load_episode(CONFIG)                              # fresh random seed per load
+    pop = cfg.population
+    fa, fb = pair
+    if fa == fb:
+        return replace(cfg, population=replace(pop, provider=replace(pop.provider, **fa)))
+    # cross-model game: one cooperator per group, providers per group (population's is dropped)
+    spec = pop.agents[0]
+    agents = [replace(spec, count=1, provider=replace(pop.provider, **f)) for f in (fa, fb)]
+    return replace(cfg, population=replace(pop, provider=None, agents=agents))
 
 
 async def _play_missing(games: int, parallel: int) -> None:
     st = Storage(DB)
     try:
         unfinished = st.unfinished_runs()
-        missing = [f"cooperator {i}" for i in range(1, games + 1)
-                   if st.run_id_by_name(f"cooperator {i}") is None]
+        missing = [(pair, _name(label, i)) for label, pair in MODELS
+                   for i in range(1, games + 1) if st.run_id_by_name(_name(label, i)) is None]
     finally:
         st.close()
     sem = asyncio.Semaphore(parallel)
@@ -47,15 +81,15 @@ async def _play_missing(games: int, parallel: int) -> None:
             print(f"resume {name}")
             await resume_run(run_id, DB, quiet=True)
 
-    async def play(name):
+    async def play(pair, name):
         async with sem:
             print(f"calculating {name}")
             t0 = time.monotonic()
-            await run(load_episode(CONFIG), DB, name, quiet=True)   # fresh random seed per load
+            await run(cfg_for(pair), DB, name, quiet=True)
             print(f"done {name} {time.monotonic() - t0:.1f}s")
 
     await asyncio.gather(*[resume(r, n) for r, n in unfinished])
-    await asyncio.gather(*[play(n) for n in missing])
+    await asyncio.gather(*[play(p, n) for p, n in missing])
 
 
 def report() -> None:
@@ -68,26 +102,31 @@ def report() -> None:
             "SELECT p.run_id, r.name, p.finished, p.a_number, p.b_number, p.a_outcome "
             "FROM pairings p JOIN runs r USING (run_id) WHERE p.round_idx = 1 ORDER BY p.run_id"
         ).fetchall()
+        models = {(run_id, aid): model.rsplit("/", 1)[-1] for run_id, aid, model in conn.execute(
+            "SELECT run_id, agent_id, json_extract(provider, '$.model') FROM agents")}
         chats = {}
         for run_id, speaker, text in conn.execute(
                 "SELECT run_id, speaker, text FROM messages ORDER BY run_id, turn_idx"):
-            chats.setdefault(run_id, []).append(f"{speaker}: {text}")
+            chats.setdefault(run_id, []).append(f"{speaker} [{models[(run_id, speaker)]}]: {text}")
     finally:
         conn.close()
-    finished = [r for r in rows if r[2]]
-    held = [r for r in finished if r[5] == "CC"]
-    n, k = len(finished), len(held)
-    print(f"runs: {len(rows)} total, {n} finished, {len(rows) - n} aborted")
-    if n:
-        lo, hi = wilson_interval(k, n)
-        print(f"both kept the deal (CC): {k}/{n} = {k / n:.2f}  [Wilson 95%: {lo:.2f}, {hi:.2f}]")
-    for run_id, name, _, a, b, outcome in finished:
-        if outcome == "CC":
-            continue
-        kind = ("undercut" if (a - b) % 10 == 1 or (b - a) % 10 == 1 else "miscoordination")
-        print(f"\n--- {name} (run {run_id}): {a} vs {b} -> {outcome} ({kind})")
-        for line in chats.get(run_id, []):
-            print("   ", line)
+    labels = sorted({_label(r[1]) for r in rows})
+    for label in labels:
+        group = [r for r in rows if _label(r[1]) == label]
+        finished = [r for r in group if r[2]]
+        held = [r for r in finished if r[5] == "CC"]
+        n, k = len(finished), len(held)
+        print(f"\n===== {label}: {len(group)} runs, {n} finished, {len(group) - n} aborted")
+        if n:
+            lo, hi = wilson_interval(k, n)
+            print(f"both kept the deal (CC): {k}/{n} = {k / n:.2f}  [Wilson 95%: {lo:.2f}, {hi:.2f}]")
+        for run_id, name, _, a, b, outcome in finished:
+            if outcome == "CC":
+                continue
+            kind = ("undercut" if (a - b) % 10 == 1 or (b - a) % 10 == 1 else "miscoordination")
+            print(f"\n--- {name} (run {run_id}): {a} vs {b} -> {outcome} ({kind})")
+            for line in chats.get(run_id, []):
+                print("   ", line)
 
 
 def main() -> None:
