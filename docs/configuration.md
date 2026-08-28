@@ -38,7 +38,11 @@ uv run python experiment.py --resume 87 --rounds 20  # grow #87 to 20 rounds (ex
 `resume_run` reloads the run's stored config, rebuilds the population from the same seed
 (identical agent ids), rehydrates each agent's score and memory from the DB, and plays
 only the missing rounds (`last_round + 1` → target). Past rounds are read from the DB, so
-any stored run is resumable. Extending updates
+any stored run is resumable. If a stored round holds an **aborted pairing** (an LLM failure
+left it without a result), resume first **rewinds** the run to that round — dropping it and
+everything after it, including agents born and deaths recorded there — and replays from
+it, even when the run had been closed meanwhile; the sweep scripts therefore repair such
+holes on their next start. Extending updates
 `runs.config`'s `rounds` but **not** `config_hash` (which excludes `rounds`), so the run
 stays in its design family. The LLM judge is not re-run on resume/extend.
 

@@ -7,7 +7,8 @@
 # no npc: part). Within a run every NPC is the same model. The agent list is rebuilt per
 # run from the sequence string: X = cooperator, P = defector (the same cooperator prompt +
 # choice_mapping: one_above); the subject keeps the config's prompt and gets the swept
-# model. Idempotent: unfinished runs are resumed first, then
+# model. Idempotent: unfinished runs and runs holding an aborted pairing (rewound and
+# replayed from it) are resumed first, then
 # missing names are filled — re-run to continue. PARALLEL runs play at a time (each its
 # own episode + DB writer; WAL + busy timeout make that safe) so a rented GPU stays busy.
 
@@ -30,19 +31,20 @@ load_dotenv()
 CONFIG = "config/infection.yaml"
 DB = "db/infection.db"
 SPLIT_DIR = _out_dir_for(DB)
-REPEATS = 10
+REPEATS = 50
 PARALLEL = 8
 SUBJECTS = [                     # (label for run names, provider fields overriding the config's subject_model)
     # ("llama-3.3-70b", {"model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"}),
-    ("deepseek-v4-flash", {"model": "deepseek-ai/DeepSeek-V4-Flash-0731"}),
+    # ("deepseek-v4-flash", {"model": "deepseek-ai/DeepSeek-V4-Flash-0731"}),
     # V4-Pro-0813 ignores reasoning.enabled=false on Together; thinking is switched off via extra_body
     ("deepseek-v4-pro-0813", {"model": "deepseek-ai/DeepSeek-V4-Pro-0813",
                               "extra_body": {"thinking": {"type": "disabled"}}}),
     ("qwen3.7-plus", {"model": "Qwen/Qwen3.7-Plus", "stream": True}),   # stream-only; same model as the NPCs
-    ("gemma-4-31b", {"model": "google/gemma-4-31B-it"}),
+    # ("gemma-4-31b", {"model": "google/gemma-4-31B-it"}),
     # gpt-oss cannot switch thinking off (only reasoning_effort); it is the one thinking subject —
     # reasoning stays on and the completion budget covers the reasoning tokens
-    ("gpt-oss-120b", {"model": "openai/gpt-oss-120b", "reasoning": True, "max_tokens": 50000}),
+    # ("gpt-oss-120b", {"model": "openai/gpt-oss-120b", "reasoning": True, "max_tokens": 50000}),
+    # ("gpt-oss-20b", {"model": "openai/gpt-oss-20b", "reasoning": True, "max_tokens": 50000}),
     # local models: add "base_url": "http://localhost:11434/v1", "api_key_env": "" ...
 ]
 NPCS = [                         # (label, provider fields overriding the config's npc_model); "" = as is
@@ -81,7 +83,7 @@ def _split_off(run_id: int) -> None:
 async def _main() -> None:
     st = Storage(DB)
     try:
-        unfinished = st.unfinished_runs()
+        unfinished = sorted(set(st.unfinished_runs()) | set(st.runs_with_holes()))
         missing = [(fields, npc_fields, sequence, run_name(label, npc, sequence, i))
                    for label, fields in SUBJECTS for npc, npc_fields in NPCS
                    for sequence in SEQUENCES for i in range(1, REPEATS + 1)

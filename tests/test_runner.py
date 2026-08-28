@@ -410,3 +410,41 @@ async def test_resume_replays_evolution_deterministically(tmp_path):
         assert ids == expected
     finally:
         conn.close()
+
+
+async def test_resume_replays_from_the_first_aborted_pairing(tmp_path):
+    # A run whose round 2 pairing was aborted (LLM failure) but which went on to round 3 and
+    # even closed: resume must rewind to round 2 and replay rounds 2..3 — no hole is left.
+    from src.core.agent import LLMCall
+    from src.games.base import PairingRecord
+    from src.matchmaking import RoundPlan
+    from src.storage import Storage
+
+    cfg = _cfg(n=2, rounds=3)
+    db = str(tmp_path / "t.db")
+    pop = make_population(cfg.population, context_window=cfg.context_window).build(random.Random(cfg.seed))
+    st = Storage(db)
+    rid = st.begin(cfg, pop)
+    ids = pop.ids()
+    plan = RoundPlan(pairings=[(ids[0], ids[1])], idle=[], events=[])
+    ok = dict(transcript=[], a_number=4, b_number=4, outcome="CC", a_payoff=3.0, b_payoff=3.0,
+              usage={"prompt_tokens": 1, "completion_tokens": 1, "calls": 1})
+    st.observe(1, plan, [PairingRecord(round=1, a_id=ids[0], b_id=ids[1], **ok)])
+    st.observe(2, plan, [PairingRecord(
+        round=2, a_id=ids[0], b_id=ids[1], transcript=[], finished=False,
+        usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 1},
+        llm_calls=[LLMCall(ids[1], "decide", 1, 1, "server_error", 503, {}, None, None, "HTTP 503", 0, 0)])])
+    st.observe(3, plan, [PairingRecord(round=3, a_id=ids[0], b_id=ids[1], **ok)])
+    st.finish(pop)
+    st.close()
+    await pop.aclose()
+
+    await runner.resume_run(rid, db, quiet=True)
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM pairings WHERE run_id=? AND finished=0", (rid,)).fetchone()[0] == 0
+        assert [r[0] for r in conn.execute("SELECT round_idx FROM rounds WHERE run_id=? ORDER BY 1", (rid,))] == [1, 2, 3]
+        assert conn.execute("SELECT a_number FROM pairings WHERE run_id=? AND round_idx=1", (rid,)).fetchone()[0] == 4  # round 1 kept
+        assert conn.execute("SELECT finished_at FROM runs WHERE run_id=?", (rid,)).fetchone()[0] is not None
+    finally:
+        conn.close()

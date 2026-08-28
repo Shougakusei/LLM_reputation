@@ -14,6 +14,7 @@ stats.json
 stats.csv
 stats.png
 infection_stats.json
+pictures/
 
 # Environment secrets (API keys)
 .env

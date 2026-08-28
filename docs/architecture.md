@@ -244,6 +244,8 @@ stopping the episode at a round boundary with `runs.finished_at` left NULL as a 
 marker. Such a run can be resumed later (see [configuration.md](./configuration.md),
 *Resuming or extending*).
 
+On resume (`src/runner.py`), a run whose stored rounds contain an aborted pairing is **rewound** to that round (`Storage.first_aborted_round` / `Storage.rewind`: the round and all later ones are dropped with their pairings, messages, LLM calls, idle rows, newborn agents and recorded deaths) and replayed from there, so no hole survives a resume.
+
 ## Persistence, runner & analysis (callers)
 
 The engine writes nothing itself. The **runner** (`src/runner.py`) is the caller that wires

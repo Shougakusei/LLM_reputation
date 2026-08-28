@@ -204,6 +204,33 @@ class Storage:
                 (json.dumps(asdict(cfg)), run_id),
             )
 
+    def runs_with_holes(self) -> list[tuple[int, str | None]]:
+        """Runs holding an aborted pairing (finished or not) as (run_id, name) — resume rewinds
+        and replays them (see runner.resume_run)."""
+        return [
+            (row[0], row[1])
+            for row in self._conn.execute(
+                "SELECT DISTINCT r.run_id, r.name FROM runs r JOIN pairings p USING (run_id) "
+                "WHERE p.finished = 0 ORDER BY r.run_id"
+            )
+        ]
+
+    def first_aborted_round(self, run_id: int) -> int | None:
+        """The earliest round holding an aborted pairing (finished=0), or None."""
+        return self._conn.execute(
+            "SELECT MIN(round_idx) FROM pairings WHERE run_id=? AND finished=0", (run_id,)
+        ).fetchone()[0]
+
+    def rewind(self, run_id: int, from_round: int) -> None:
+        """Forget rounds >= from_round so they can be replayed: their rounds/pairings/messages/
+        llm_calls/idle rows (cascade), the agents born in them, and the deaths recorded there."""
+        with self._conn:
+            self._conn.execute("DELETE FROM rounds WHERE run_id=? AND round_idx >= ?", (run_id, from_round))
+            self._conn.execute("DELETE FROM agents WHERE run_id=? AND born_round >= ? AND born_round > 1",
+                               (run_id, from_round))
+            self._conn.execute("UPDATE agents SET died_round=NULL, final_score=NULL "
+                               "WHERE run_id=? AND died_round >= ?", (run_id, from_round))
+
     def delete_run(self, run_id: int) -> None:
         """Delete the run and all its rows — child tables cascade
         (FK with ON DELETE CASCADE; PRAGMA foreign_keys=ON is set in __init__)."""

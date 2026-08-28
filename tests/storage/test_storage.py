@@ -762,3 +762,73 @@ def test_hash_config_dict_strips_default_provider_stream():
     streaming = json.loads(json.dumps(d))
     streaming["population"]["provider"]["stream"] = True
     assert _hash_config_dict(streaming) != _hash_config_dict(d)
+
+
+def _finished_rec(rnd, a="A1", b="A2"):
+    return PairingRecord(round=rnd, a_id=a, b_id=b, transcript=[{"speaker": a, "text": "hi", "ready": True}],
+                         a_number=4, b_number=4, outcome="CC", a_payoff=3.0, b_payoff=3.0,
+                         usage={"prompt_tokens": 1, "completion_tokens": 1, "calls": 1})
+
+
+def _aborted_rec(rnd, a="A1", b="A2"):
+    calls = [LLMCall(b, "decide", 1, 1, "server_error", 503, {"model": "m"}, None, None, "HTTP 503", 0, 0)]
+    return PairingRecord(round=rnd, a_id=a, b_id=b, transcript=[], finished=False,
+                         usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 1}, llm_calls=calls)
+
+
+def test_first_aborted_round_and_rewind(tmp_path):
+    # A run with an aborted pairing in round 2 of 3: rewind drops rounds >= 2 (pairings,
+    # messages, llm_calls, idle cascade) and keeps round 1 intact.
+    cfg = _cfg(n=3, rounds=3)
+    st = _store(tmp_path)
+    try:
+        rid = st.begin(cfg, _pop(cfg))
+        st.observe(1, _plan(idle=["A3"]), [_finished_rec(1)])
+        st.observe(2, _plan(idle=["A3"]), [_aborted_rec(2)])
+        st.observe(3, _plan(idle=["A3"]), [_finished_rec(3)])
+        assert st.first_aborted_round(rid) == 2
+        st.rewind(rid, 2)
+        c = st._conn
+        assert [r[0] for r in c.execute("SELECT round_idx FROM rounds WHERE run_id=?", (rid,))] == [1]
+        assert c.execute("SELECT COUNT(*) FROM pairings WHERE run_id=?", (rid,)).fetchone()[0] == 1
+        assert c.execute("SELECT COUNT(*) FROM llm_calls WHERE run_id=?", (rid,)).fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM messages WHERE run_id=?", (rid,)).fetchone()[0] == 1
+        assert c.execute("SELECT COUNT(*) FROM idle WHERE run_id=?", (rid,)).fetchone()[0] == 1
+        assert st.first_aborted_round(rid) is None
+        assert st.load_state(rid, cfg.idle_payoff).last_round == 1
+    finally:
+        st.close()
+
+
+def test_rewind_forgets_births_and_deaths_of_dropped_rounds(tmp_path):
+    cfg = _cfg(n=3, rounds=3)
+    st = _store(tmp_path)
+    try:
+        rid = st.begin(cfg, _pop(cfg))
+        st.observe(1, _plan(idle=["A3"]), [_finished_rec(1)])
+        with st._conn:
+            st._conn.execute("UPDATE agents SET died_round=2 WHERE run_id=? AND agent_id='A3'", (rid,))
+            st._conn.execute("INSERT INTO agents(run_id, agent_id, system_prompt, provider, born_round) "
+                             "VALUES (?, 'A4', 'p', '{}', 2)", (rid,))
+        st.rewind(rid, 2)
+        rows = dict(st._conn.execute("SELECT agent_id, died_round FROM agents WHERE run_id=?", (rid,)).fetchall())
+        assert set(rows) == {"A1", "A2", "A3"} and rows["A3"] is None   # A4 born in round 2 is gone, A3 alive again
+    finally:
+        st.close()
+
+
+def test_runs_with_holes_lists_closed_runs_too(tmp_path):
+    cfg = _cfg(n=3, rounds=2)
+    st = _store(tmp_path)
+    try:
+        pop = _pop(cfg)
+        rid = st.begin(cfg, pop)
+        st.observe(1, _plan(idle=["A3"]), [_aborted_rec(1)])
+        st.observe(2, _plan(idle=["A3"]), [_finished_rec(2)])
+        st.finish(pop)                                   # closed, yet holed
+        rid2 = st.begin(cfg, _pop(cfg))
+        st.observe(1, _plan(idle=["A3"]), [_finished_rec(1)])
+        assert st.runs_with_holes() == [(rid, None)]
+        assert st.unfinished_runs() == [(rid2, None)]
+    finally:
+        st.close()

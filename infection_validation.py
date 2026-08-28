@@ -7,7 +7,7 @@
 # MODELS as independent runs named "<label> cooperator <i>" (the config's own provider has
 # an empty label -> "cooperator <i>"). An entry gives the provider fields of the two
 # cooperators: the same dict twice = one model, two different dicts = a cross-model game
-# (who opens the chat is random). Aborted runs are resumed first — idempotent, re-run to
+# (who opens the chat is random). Aborted or holed runs are resumed first — idempotent, re-run to
 # continue.
 # Runs are played PARALLEL at a time (each is its own episode + DB writer; WAL + busy timeout
 # make that safe) so a rented GPU is not left idle. A run "holds" when both agents chose the
@@ -69,7 +69,7 @@ def cfg_for(pair: tuple[dict, dict]) -> EpisodeCfg:
 async def _play_missing(games: int, parallel: int) -> None:
     st = Storage(DB)
     try:
-        unfinished = st.unfinished_runs()
+        unfinished = sorted(set(st.unfinished_runs()) | set(st.runs_with_holes()))
         missing = [(pair, _name(label, i)) for label, pair in MODELS
                    for i in range(1, games + 1) if st.run_id_by_name(_name(label, i)) is None]
     finally:

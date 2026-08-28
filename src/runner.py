@@ -158,7 +158,8 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
 
     Without `rounds` — finish playing an aborted run up to `rounds` from its stored
     config. With `rounds` — grow it to that number (extend); if that many or more
-    rounds are already played, do nothing. Past rounds are read from the DB (the
+    rounds are already played, do nothing. A run holding an aborted pairing is first
+    rewound to that round and replayed from there, whatever its finished state. Past rounds are read from the DB (the
     actual pairings), new ones are played with per-round rng, so runs recorded before
     the switch to per-round rng are also resumable.
 
@@ -174,6 +175,13 @@ async def resume_run(run_id: int, db_path: str, rounds: int | None = None,
     cfg = episode_from_dict(json.loads(config_json))
     if rounds is not None:
         cfg = replace(cfg, rounds=rounds)               # extend: grow the target number of rounds
+    # An aborted pairing leaves a hole the later rounds were played over; rewind to it and
+    # replay from there (the memory of every agent is rebuilt from the surviving rounds).
+    hole = st.first_aborted_round(run_id)
+    if hole is not None:
+        st.rewind(run_id, hole)
+        if not quiet:
+            print(f"run {run_id}: round {hole} has an aborted pairing — rewinding and replaying from it")
     state = st.load_state(run_id, cfg.idle_payoff)
     # "Nothing to finish playing" holds only if the run is ALREADY closed (finished_at set). If all
     # rounds are recorded but finished_at is empty — this is an episode aborted on the LAST round
