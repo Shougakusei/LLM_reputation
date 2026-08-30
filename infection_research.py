@@ -31,7 +31,7 @@ load_dotenv()
 CONFIG = "config/infection.yaml"
 DB = "db/infection.db"
 SPLIT_DIR = _out_dir_for(DB)
-REPEATS = 50
+REPEATS = 10
 PARALLEL = 8
 SUBJECTS = [                     # (label for run names, provider fields overriding the config's subject_model)
     # ("llama-3.3-70b", {"model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"}),
@@ -45,6 +45,10 @@ SUBJECTS = [                     # (label for run names, provider fields overrid
     # reasoning stays on and the completion budget covers the reasoning tokens
     # ("gpt-oss-120b", {"model": "openai/gpt-oss-120b", "reasoning": True, "max_tokens": 50000}),
     # ("gpt-oss-20b", {"model": "openai/gpt-oss-20b", "reasoning": True, "max_tokens": 50000}),
+    # thinking cannot be switched off for these — reasoning stays on, 50k completion budget
+    ("glm-5.3-flash", {"model": "zai-org/GLM-5.3-Flash", "reasoning": True, "max_tokens": 50000}),
+    ("ternary-bonsai-27b", {"model": "Prism-ML/Ternary-Bonsai-27B", "reasoning": True, "max_tokens": 50000}),
+    ("muse-glimmer-30b", {"model": "meta-models/Muse-Glimmer-30B", "reasoning": True, "max_tokens": 50000}),
     # local models: add "base_url": "http://localhost:11434/v1", "api_key_env": "" ...
 ]
 NPCS = [                         # (label, provider fields overriding the config's npc_model); "" = as is
@@ -52,7 +56,7 @@ NPCS = [                         # (label, provider fields overriding the config
     # ("deepseek-v4-pro-0813", {"model": "deepseek-ai/DeepSeek-V4-Pro-0813",
     #                           "extra_body": {"thinking": {"type": "disabled"}}}),   # parked for now
 ]
-SEQUENCES = ["XXXXXXX", "PXXXXXX", "XPXXXXX", "PPXXXXX"]   # X = cooperator, P = defector
+SEQUENCES = ["XXXXXXX"]#, "PXXXXXX", "XPXXXXX", "PPXXXXX"]   # X = cooperator, P = defector
 
 
 def run_name(subject: str, npc: str, sequence: str, i: int) -> str:
