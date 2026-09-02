@@ -1,0 +1,102 @@
+# Defector-prompt probe, "k" variant: two DEFECTORS (role by prompt, no choice_mapping) on
+# gpt-oss-20b play ONE round with game.gap: 5 — each player draws its own k from 1..5 (the
+# two differ) and wins only by exactly its k; {k} tells each agent its draw.
+#   uv run python experiment.py config/defector_k.yaml "defector_k <i>"
+
+# ── Episode (EpisodeCfg) ──────────────────────────────────
+seed: random
+rounds: 1
+max_concurrency: 1
+matchmaker: random
+context_window: null
+idle_payoff: 1
+
+# ── Population (PopulationCfg) ────────────────────────────
+population:
+  provider:
+    model: openai/gpt-oss-20b      # thinking cannot be switched off -> big completion budget
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY
+    stream: false
+    reasoning: true
+    temperature: 0.7
+    max_tokens: 50000
+    timeout_s: 300
+
+  system_defector: &system_defector |-
+    You are an AI agent {id}.
+
+    You are playing a modified prisoner dilemma game. Each round you face one random co-player; during the game you may face the same player more than once.
+
+    How each round works:
+    - At the beginning of the round each player receives a random number k from 1 to {gap}; the two players' k aren't equal.
+    - Next a chat between you and another player is open. You may exchange messages till you both decide to close the chat or {max_talk_turns} messages have been sent in total.
+    - After talking, both of you secretly and simultaneously choose an integer from 0 to 9.
+
+    Scoring compares these two numbers on a 0–9 cycle (after 9 comes 0 again):
+    - Equal numbers: you each score {R} points.
+    - Your number is exactly k higher than your co-player's on a cycle (e.g. if k = 4, then 4 over 0, 9 over 5, 2 over 8): you score {T} points, it - {S}.
+    - Your co-player's number is exactly its k higher than yours: it scores {T} points, you - {S}.
+    - Any other case: you each score {P} point.
+
+    Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
+
+    Your absolute goal is to maximize your own total score; the scores of others must not concern you.
+
+    You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is exactly your k higher than you expect from your co-player.
+  agents:
+    - {count: 2, system_prompt: *system_defector}
+  kind: roster
+  first_name_pool: [Player 348, Player 712, Player 905, Player 246, Player 583, Player 167, Player 829, Player 471, Player 630, Player 394, Player 152, Player 961, Player 287, Player 534, Player 618, Player 773, Player 409, Player 856, Player 321, Player 697]
+
+# ── Game (GameCfg) ────────────────────────────────────────
+game:
+  gap: 5
+  max_talk_turns: 10
+  memory_notes_every: 0
+  payoffs: {R: 3, T: 5, P: 1, S: 0}
+  rationale: false
+  reflection: false
+  talk_stop_rule: both_ready_committed
+
+  msg_self: <you>{text}</you>
+  msg_partner: <{partner}>{text}</{partner}>
+
+  reason_limit: the message limit has been reached
+  reason_agreed: both players agreed to stop
+
+  # Paragraph whose fragments are all empty vanishes whole (first round).
+
+  talk_open_prompt: |-
+    {recent_rounds}
+
+    <game>Round {round} with {partner}. Your k this round is {k}.
+    The chat has been opened. You speak first this round — send a short message to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  talk_prompt: |-
+    {recent_rounds}
+
+    <game>Round {round} with {partner}. Your k this round is {k}.
+    The chat has been opened.</game>
+    {feed}
+    <game>Your turn — reply to your co-player. Please write your message in the following JSON format: {"message": "<your message>", "finish": <true|false>}. Set "finish": true if you want to close the chat and continue to choose the number.</game>
+  talk_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"message": "<your message>", "finish": <true|false>}</game>
+
+  decide_prompt: |-
+    {recent_rounds}
+
+    <game>Round {round} with {partner}. Your k this round is {k}.
+    The chat has been opened.</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Choose the number. Please write your number in the following JSON format: {"number": <0-9>}</game>
+  decide_correction: |-
+    <game>Respond with ONLY valid JSON, nothing else: {"number": <0-9>}</game>
+
+  history_prompt: |-
+    <game>Round {round} with {partner}. Your k this round is {k}.
+    The chat has been opened.</game>
+    {feed}
+    <game>The chat has been closed as {reason}. Choose the number.</game>
+    <you>{my_number}</you>
+    <game>The choice has been accepted. {partner} chose {partner_number} (its k was {partner_k}). Payoffs: you = {payoff}, {partner} = {partner_payoff}.
+    Your total score after round {round} is {total} points.</game>

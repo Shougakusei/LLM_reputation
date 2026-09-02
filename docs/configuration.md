@@ -69,6 +69,7 @@ Core knobs:
 |-------|---------|
 | `payoffs` | `{R, T, P, S}` — reference `3, 5, 1, 0`; must satisfy `T > R > P > S` and `2R > T + S` |
 | `max_talk_turns` | hard ceiling on cheap-talk messages per round |
+| `gap` | `1` (default) = classic +1 game; `2..5` = per-pairing draw of two **distinct** `k` from `1..gap`, each side wins only by exactly its own `k`; `{k}` in step prompts / `{partner_k}` in reflect+history tell the agents; `k_above` mappings shift by the agent's `k`; stripped from `config_hash` when `1` |
 | `talk_stop_rule` | how cheap talk ends; all variants stop only when **both** agents set `finish: true` — `both_ready_latch` (default), `both_ready_revocable`, `both_ready_committed` (see [architecture.md](./architecture.md)) |
 | `rationale` | `true` = the returned rationale is read/stored (write `decide_prompt` to ask for it); `false` (default) = number only |
 | `reflection` | `true` = one extra post-game REFLECT call per agent, stored in memory (default `false`) |
@@ -173,7 +174,7 @@ substituted — never assembled from text chunks. Each defaults to a `DEFAULT_*`
 ```yaml
 # The whole system prompt is ONE per-agent string (anchor-shareable). Define once,
 # reference with *alias. The engine substitutes only {id} and the payoffs
-# {R}/{T}/{P}/{S}/{max_talk_turns}.
+# {R}/{T}/{P}/{S}/{max_talk_turns}/{gap}.
 system_pragmatic: &system_pragmatic |-
   You are AI agent {id}, a pragmatic player. ...full rules with {R}/{T}/{P}/{S}...
 

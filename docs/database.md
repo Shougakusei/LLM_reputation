@@ -52,6 +52,8 @@ Columns are from A's / B's perspective:
 - `finished` — `1` = played to completion, `0` = aborted by an LLM failure. Two CHECK
   constraints enforce: finished ⇒ results present; aborted ⇒ results NULL.
 - `a_number`, `b_number` — the chosen integers 0–9.
+- `a_k`, `b_k` — each side's winning gap (`1` unless `game.gap` > 1; added by an additive
+  migration, old rows default to `1`).
 - `a_outcome` — `CC` / `DC` / `CD` / `DD` from A's perspective; `a_payoff`, `b_payoff`.
 - `a_rationale`, `b_rationale` — private reasoning (NULL when `game.rationale=false`).
 - `a_predicted`, `b_predicted` — prediction-strategy guess (NULL for direct agents).

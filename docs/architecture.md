@@ -57,6 +57,13 @@ without a cycle.
 - One number **exactly one higher** than the other, **mod 10** (0 follows 9) → the
   higher scores `T` (betrayal), the lower scores `S`.
 - **Anything else** → both score `P` (miscoordination).
+- With `game.gap: N` (2..5) the winning margin is personal: each side of a pairing draws
+  its own `k` from `1..N` (the two always differ) out of a dedicated per-round stream
+  (`Random(f"{seed}:gap:{r}")`, drawn by the orchestrator in pairing order — resumable,
+  and the matchmaker's stream is untouched), and wins `T` only by exactly its `k`. The
+  agent sees its draw via `{k}` in the step prompts; distinct `k ≤ 5` sum to at most 9,
+  so both sides can never hit at once. `pairings.a_k/b_k` persist the draws; `resolve`
+  and the diary default to `k = 1` (the classic game).
 - Outcome strings are from A's perspective (`CC`/`DC`/`CD`/`DD`); `_FLIP`
   mirrors them for B's memory.
 
@@ -107,7 +114,8 @@ A failed LLM call in any phase aborts the pairing (see *Failure handling*).
 - **prediction** (`strategy/prediction.py`): one `PREDICT` phase (the agent predicts the
   partner's number), then a pure `PredictionMapping` (`strategy/mappings.py`) turns that
   prediction into its own choice — `match` (copy → cooperate) or `k_above` (rational
-  best-response, off-by-one for `T`).
+  best-response: `+k` for `T`, where `k` is the agent's own winning gap — `1` unless
+  `game.gap` > 1; `one_above` is kept as a legacy registry alias for stored configs).
 
 **Strategy is per-agent.** It lives on `AgentSpec`/`AgentSetup` as plain strings (`core`
 does not import `strategy`), so one population can mix direct and prediction agents. The
