@@ -46,12 +46,17 @@ def _hash_config_dict(d: dict) -> str:
     evolution-free configs keep the same config_hash they had before evolution existed.
     Evolution-enabled configs keep both keys — that's a genuinely new design. Similarly,
     `invincible: False`, `provider: None` and `choice_mapping: "match"` on each agent spec, and
-    `stream: False` inside provider blocks, are stripped for backward compatibility. Within
+    `stream: False` inside provider blocks, and `game.gap: 1`, are stripped for backward compatibility. Within
     `population.evolution`, also strips `replacement: "roll"` (the default) and `None`-valued
     `decept_min`/`decept_max` so pre-feature evolution configs keep their hash."""
     d = dict(d)
     d.pop("judge", None)
     d.pop("rounds", None)
+    game = d.get("game")
+    if isinstance(game, dict) and game.get("gap", 1) == 1:
+        game = dict(game)
+        game.pop("gap", None)
+        d["game"] = game
     population = d.get("population")
     if isinstance(population, dict):
         population = dict(population)

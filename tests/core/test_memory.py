@@ -367,3 +367,12 @@ def test_fragments_recent_rounds_respect_window():
     m.add(_entry(round=2, partner="A5"))
     f = m.fragments(1, GameCfg())
     assert "A5" in f["recent_rounds"] and "A2 chose" not in f["recent_rounds"]
+
+
+def test_history_prompt_renders_own_and_partner_k():
+    from src.core.config import GameCfg
+    m = Memory()
+    e = _entry()
+    m.add(MemoryEntry(**{**e.__dict__, "my_k": 3, "partner_k": 2}))
+    cfg = GameCfg(history_prompt="<game>Round {round} with {partner}: your k {k}, its k {partner_k}.</game>")
+    assert m.render(None, cfg)[0].content == "<game>Round 1 with A2: your k 3, its k 2.</game>"

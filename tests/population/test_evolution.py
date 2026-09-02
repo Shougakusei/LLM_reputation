@@ -243,7 +243,7 @@ def _inherit_cfg(pool_size=20, death_prob=0.5):
         kind="roster",
         agents=[AgentSpec(count=2, system_prompt="normal {id}"),
                 AgentSpec(count=1, system_prompt="predict {id}",
-                          play_strategy="prediction", prediction_mapping="one_above"),
+                          play_strategy="prediction", prediction_mapping="k_above"),
                 AgentSpec(count=1, system_prompt="defect {id}", deceptive=True)],
         provider=ProviderCfg(base_url="http://x/v1", model="m"),
         first_name_pool=[f"Player {i}" for i in range(pool_size)],
@@ -278,7 +278,7 @@ def test_inherit_preserves_strategy_and_mapping():
     birth = next(e for e in events if e["type"] == "birth")
     newborn = pop.get(birth["agent"])
     assert newborn.setup.play_strategy == "prediction"
-    assert newborn.setup.prediction_mapping == "one_above"
+    assert newborn.setup.prediction_mapping == "k_above"
 
 
 def test_inherit_consumes_no_type_randoms():
@@ -376,8 +376,8 @@ def test_population_provider_wins_for_newborns_too():
 
 def test_inherit_newborn_keeps_choice_mapping():
     cfg = _inherit_cfg()
-    cfg = replace(cfg, agents=[replace(cfg.agents[0], choice_mapping="one_above")] + list(cfg.agents[1:]))
+    cfg = replace(cfg, agents=[replace(cfg.agents[0], choice_mapping="k_above")] + list(cfg.agents[1:]))
     pop = _build(cfg)
     rng = FakeRng(randoms=[0.1, 0.9, 0.9, 0.9], ranges=[0])
     birth = evolve(pop, cfg, rng, round=2)[1]
-    assert pop.get(birth["agent"]).setup.choice_mapping == "one_above"
+    assert pop.get(birth["agent"]).setup.choice_mapping == "k_above"

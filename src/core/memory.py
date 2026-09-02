@@ -25,6 +25,8 @@ class MemoryEntry:
     score: float = 0.0       # the agent's accumulated score BEFORE this round (same as in the phase header)
     my_predicted: int | None = None  # prediction strategy; None for direct
     my_reflection: str | None = None  # post-game reflection; None if disabled
+    my_k: int = 1                    # the winning gaps of the round (1 unless game.gap > 1)
+    partner_k: int = 1
 
 
 class Memory:
@@ -143,6 +145,8 @@ def _render_entry(e: MemoryEntry, cfg: GameCfg, template: str | None = None) -> 
         .replace("{my_number}", str(e.my_number))
         .replace("{partner_number}", str(e.partner_number))
         .replace("{partner_payoff}", f"{e.partner_payoff:g}")
+        .replace("{partner_k}", str(e.partner_k))
+        .replace("{k}", str(e.my_k))
         .replace("{partner}", e.partner_id)
         .replace("{payoff}", f"{e.payoff:g}")
         .replace("{round}", str(e.round))

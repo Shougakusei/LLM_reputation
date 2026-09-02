@@ -185,7 +185,7 @@ population:
   last_name_pool:  [...]             # >= n_agents unique names (optional)
   agents:                            # shorter than n_agents -> cycled at build time
     - {count: 2, play_strategy: direct, system_prompt: *system_pragmatic}
-    - {count: 2, play_strategy: prediction, prediction_mapping: one_above, system_prompt: *system_pragmatic}
+    - {count: 2, play_strategy: prediction, prediction_mapping: k_above, system_prompt: *system_pragmatic}
 ```
 
 - `provider` — two ways to assign models. **Population-wide**: set `population.provider`
@@ -199,9 +199,9 @@ population:
   (`<game>` / `<you>` / `<Name>`) so history rendering stays in sync. Optional — omitted, it
   defaults to `DEFAULT_SYSTEM_PROMPT`.
 - Per-agent keys: `count`, `play_strategy` (`direct` default, or `prediction`),
-  `prediction_mapping` (`match` default, or `one_above`; only for prediction agents),
-  `choice_mapping` (`match` default, or `one_above`; only for direct agents — the number the
-  agent decided is mapped before it is played: `one_above` turns an honest agent into an
+  `prediction_mapping` (`match` default, or `k_above`; only for prediction agents),
+  `choice_mapping` (`match` default, or `k_above`; only for direct agents — the number the
+  agent decided is mapped before it is played: `k_above` turns an honest agent into an
   undercutter by construction, +1 mod 10; the record, the payoff and the agent's own memory
   all carry the played number, the agent itself is never told), `system_prompt`, `provider`
   (per-group model, see above). **Strategy is per-agent**, so a population can mix both.

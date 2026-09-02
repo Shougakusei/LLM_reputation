@@ -39,36 +39,41 @@ class ReputationPD:
             self._strategy_cache[key] = st
         return st
 
-    def resolve(self, x: int, y: int) -> tuple[str, float, float]:
+    def resolve(self, x: int, y: int, ka: int = 1, kb: int = 1) -> tuple[str, float, float]:
+        # ka / kb: each side's winning gap (both 1 in the classic game). Distinct gaps <= 5
+        # never hit at once (ka + kb <= 9), so the order of the checks does not matter.
         p = self.cfg.payoffs
         if x == y:
             return ("CC", p.R, p.R)
-        if x == (y + 1) % 10:
+        if x == (y + ka) % 10:
             return ("DC", p.T, p.S)  # x betrayed y
-        if y == (x + 1) % 10:
+        if y == (x + kb) % 10:
             return ("CD", p.S, p.T)  # y betrayed x
         return ("DD", p.P, p.P)
 
-    async def play_pairing(self, a: Agent, b: Agent, round: int) -> PairingRecord:
-        # No rng: the matcher fixes who opens cheap-talk via argument order (a opens).
+    async def play_pairing(self, a: Agent, b: Agent, round: int,
+                           ks: tuple[int, int] = (1, 1)) -> PairingRecord:
+        # No rng: the matcher fixes who opens cheap-talk via argument order (a opens), and
+        # the per-side winning gaps `ks` (a's, b's) are drawn by the orchestrator.
+        ka, kb = ks
         # The raw data of every LLM call is accumulated incrementally: on an LLM failure
         # (ProviderError) the pairing doesn't crash, but is returned as aborted
         # (finished=False) with the whole accumulated L2 log.
         transcript: list[dict] = []
         post_calls: list = []        # decide/predict/reflect calls (talk calls come from transcript)
         try:
-            await self._cheap_talk(a, b, round, transcript)
+            await self._cheap_talk(a, b, round, transcript, ks)
             feed_a = self._feed(transcript, a.id)   # egocentric: its own turns are tagged <you>
             feed_b = self._feed(transcript, b.id)
             # The same closing reason the agents will see in this round's history (see memory).
             reason = (self.cfg.reason_agreed if both_agreed(transcript, a.id, b.id)
                       else self.cfg.reason_limit)
-            da = await self._strategy_for(a).decide(a, b.id, round, feed_a, reason)
+            da = await self._strategy_for(a).decide(a, b.id, round, feed_a, reason, ka)
             post_calls += list(da.calls)
-            db = await self._strategy_for(b).decide(b, a.id, round, feed_b, reason)
+            db = await self._strategy_for(b).decide(b, a.id, round, feed_b, reason, kb)
             post_calls += list(db.calls)
             x, y = da.number, db.number
-            outcome, pa, pb = self.resolve(x, y)
+            outcome, pa, pb = self.resolve(x, y, ka, kb)
             a.score += pa
             b.score += pb
 
@@ -77,15 +82,15 @@ class ReputationPD:
             if self.cfg.reflection:
                 # Reflection happens before the memory write: the round's facts arrive via
                 # the context, while the agent's diary still shows only past rounds.
-                ra, ua, ca = await self._reflect(a, b.id, round, feed_a, x, y, pa)
+                ra, ua, ca = await self._reflect(a, b.id, round, feed_a, x, y, pa, ka, kb)
                 post_calls += list(ca)
-                rb, ub, cb = await self._reflect(b, a.id, round, feed_b, y, x, pb)
+                rb, ub, cb = await self._reflect(b, a.id, round, feed_b, y, x, pb, kb, ka)
                 post_calls += list(cb)
                 usages += [ua, ub]
 
             public = _public(transcript)
-            self._remember(a, b.id, round, public, da, y, outcome, pa, pb, ra)
-            self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, pa, rb)
+            self._remember(a, b.id, round, public, da, y, outcome, pa, pb, ra, ka, kb)
+            self._remember(b, a.id, round, public, db, x, _FLIP[outcome], pb, pa, rb, kb, ka)
 
             # Memory notes: every N rounds the agents consolidate their memory into notes
             # (after _remember — so the current round is already in memory). Note calls are
@@ -103,7 +108,7 @@ class ReputationPD:
                 post_calls += list(cnb); usages.append(unb)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=public,
-                a_number=x, b_number=y,
+                a_number=x, b_number=y, a_k=ka, b_k=kb,
                 a_rationale=da.rationale, b_rationale=db.rationale,
                 outcome=outcome, a_payoff=pa, b_payoff=pb, usage=_sum_usage(usages),
                 a_predicted=da.predicted, b_predicted=db.predicted,
@@ -117,12 +122,13 @@ class ReputationPD:
             calls = _talk_calls(transcript) + post_calls + list(e.calls)
             return PairingRecord(
                 round=round, a_id=a.id, b_id=b.id, transcript=_public(transcript),
+                a_k=ka, b_k=kb,
                 usage=_usage_from_calls(calls), finished=False, llm_calls=calls,
             )
 
     async def _reflect(self, agent: Agent, partner_id: str, round: int, feed: str,
-                       my_number: int, partner_number: int,
-                       payoff: float) -> tuple[str, tuple[int, int], tuple]:
+                       my_number: int, partner_number: int, payoff: float,
+                       k: int = 1, partner_k: int = 1) -> tuple[str, tuple[int, int], tuple]:
         """Ask the agent to reflect on the revealed outcome of the round.
 
         Args:
@@ -133,13 +139,15 @@ class ReputationPD:
             my_number: The number chosen by the agent itself.
             partner_number: The number chosen by the partner.
             payoff: The agent's payoff for this round.
+            k: The agent's winning gap this round.
+            partner_k: The partner's winning gap (revealed with the outcome).
 
         Returns:
             A triple (reflection text, request usage, raw phase LLMCall's).
         """
         ctx = reflect_context(self.cfg, partner_id, round, feed, me_id=agent.id,
                               my_number=my_number, partner_number=partner_number, payoff=payoff,
-                              score=agent.score)
+                              score=agent.score, k=k, partner_k=partner_k)
         res = await agent.act(Phase(PhaseKind.REFLECT, ctx, game_cfg=self.cfg))
         return res.data["reflection"], res.usage, res.calls
 
@@ -173,7 +181,8 @@ class ReputationPD:
         agent.memory.set_notes(res.data["notes"])
         return res.data["notes"], res.usage, res.calls
 
-    async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict]) -> None:
+    async def _cheap_talk(self, a: Agent, b: Agent, round: int, transcript: list[dict],
+                          ks: tuple[int, int] = (1, 1)) -> None:
         # Fills the passed-in transcript in place (so that on an LLM failure the partial
         # cheap-talk and its L2 log aren't lost — each turn carries its own "calls").
         # The stop rule is a pluggable module (src/games/talk_rules.py): skip_turn decides
@@ -182,6 +191,7 @@ class ReputationPD:
         rule = make_talk_rule(self.cfg.talk_stop_rule)
         ready = {a.id: False, b.id: False}
         order = [a, b]  # a opens; the matcher sets orientation via pairing order
+        k_of = {a.id: ks[0], b.id: ks[1]}
         i = 0
         while len(transcript) < self.cfg.max_talk_turns:
             cur, oth = order[i % 2], order[(i + 1) % 2]
@@ -191,7 +201,7 @@ class ReputationPD:
                     break
                 continue  # latched: stays silent while the other matures
             ctx = talk_context(self.cfg, oth.id, round, self._feed(transcript, cur.id),
-                               cur.score)
+                               cur.score, k_of[cur.id])
             res = await cur.act(Phase(PhaseKind.TALK, ctx, game_cfg=self.cfg))
             transcript.append(
                 {
@@ -214,7 +224,7 @@ class ReputationPD:
         return render_turns(transcript, me_id, self.cfg.msg_self, self.cfg.msg_partner)
 
     def _remember(self, agent, partner_id, round, public_transcript, mine, partner_number,
-                  outcome, payoff, partner_payoff, reflection=None):
+                  outcome, payoff, partner_payoff, reflection=None, my_k=1, partner_k=1):
         agent.memory.add(
             MemoryEntry(
                 round=round,
@@ -230,6 +240,8 @@ class ReputationPD:
                 score=agent.score - payoff,   # score BEFORE this round — as in the phase header
                 my_predicted=mine.predicted,
                 my_reflection=reflection,
+                my_k=my_k,
+                partner_k=partner_k,
             )
         )
 

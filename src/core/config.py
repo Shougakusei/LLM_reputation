@@ -249,6 +249,10 @@ STEP_PROMPT_KEYS = ("talk_open_prompt", "talk_prompt", "decide_prompt",
 @dataclass(frozen=True)
 class GameCfg:
     payoffs: Payoffs = field(default_factory=Payoffs)
+    # Winning gap. 1 = classic (+1 beats). N in 2..5 = each player of a pairing draws its own
+    # k from 1..N (the two differ) and wins only by exactly its k; with k <= 5 both cannot hit
+    # at once (k_a + k_b <= 9). The agent sees its k via {k} in the step prompts.
+    gap: int = 1
     max_talk_turns: int = 6          # hard ceiling on total cheap-talk turns in a pairing
     talk_stop_rule: str = "both_ready_latch"  # MVP: only this rule
     talk_prompt: str | PromptVariants = DEFAULT_TALK_PROMPT       # cheap-talk turn ({partner}/{round}/{feed})
@@ -321,7 +325,7 @@ class AgentSpec:
     play_strategy: str = "direct"        # "direct" | "prediction" — this spec's play strategy
     prediction_mapping: str = "match"    # predict->choice mapping (only when play_strategy="prediction")
     # direct strategy only: the number the agent decided -> the number actually played
-    # ("one_above" = an honest agent whose choice is undercut by construction, +1 mod 10)
+    # ("k_above" = an honest agent whose choice is undercut by construction, +k mod 10)
     choice_mapping: str = "match"
     # The agent's full system prompt (ONE string). There's no longer a separate persona/identity_prompt/rules — it's all here.
     # {id} and the payoffs {R}/{T}/{P}/{S}/{max_talk_turns} are substituted; usually set via a YAML anchor.
@@ -459,6 +463,10 @@ def _validate(d: dict) -> None:
     be unique and hold at least one name per agent (size = sum of agent counts).
     """
     from src.strategy.mappings import get_mapping
+
+    gap = d.get("game", {}).get("gap", 1)
+    if not isinstance(gap, int) or isinstance(gap, bool) or not 1 <= gap <= 5:
+        raise ValueError(f"game.gap must be an integer in 1..5, got: {gap!r}")
 
     for spec in d["population"]["agents"]:
         strategy = spec.get("play_strategy", "direct")

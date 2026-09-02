@@ -16,7 +16,7 @@ class PredictionStrategy:
         """Initialize the strategy with a prediction-to-choice mapping.
 
         Args:
-            mapping: Pure function predicted number -> own choice (0..9).
+            mapping: Pure function (predicted number, k) -> own choice (0..9).
             game_cfg: Game configuration (predict_prompt template and rationale flag).
         """
         self._mapping = mapping
@@ -24,7 +24,7 @@ class PredictionStrategy:
         self._rationale = game_cfg.rationale
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
-                     feed: str, reason: str = "") -> Decision:
+                     feed: str, reason: str = "", k: int = 1) -> Decision:
         """Ask for a prediction of the partner's number and map it to the final choice.
 
         Args:
@@ -33,19 +33,20 @@ class PredictionStrategy:
             round: Round number.
             feed: Rendered negotiation history.
             reason: Why the chat closed (for the closing line in the prompt, same as in decide).
+            k: The agent's winning gap this round ({k} in the prompt).
 
         Returns:
             Decision with the final number (after mapping), the prediction, and the rationale.
         """
         res = await agent.act(
             Phase(PhaseKind.PREDICT,
-                  predict_context(self._game, partner_id, round, feed, agent.score, reason),
+                  predict_context(self._game, partner_id, round, feed, agent.score, reason, k),
                   game_cfg=self._game)
         )
         predicted = res.data["number"]
         rationale = res.data["rationale"] if self._rationale else ""
         return Decision(
-            number=self._mapping(predicted),
+            number=self._mapping(predicted, k),
             rationale=rationale,
             predicted=predicted,
             predicted_rationale=rationale if self._rationale else None,

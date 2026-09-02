@@ -1,16 +1,17 @@
-"""Registry of pure mappings from a partner prediction to the final choice."""
+"""Registry of pure mappings from a decided/predicted number to the played choice."""
 
 from __future__ import annotations
 
 from typing import Callable
 
-# Pure function: partner's predicted number -> own choice (0..9).
-PredictionMapping = Callable[[int], int]
+# Pure function: (number, own winning gap k) -> played choice (0..9).
+PredictionMapping = Callable[[int, int], int]
 
 _REGISTRY: dict[str, PredictionMapping] = {
-    "match": lambda p: p,
-    "one_above": lambda p: (p + 1) % 10,
+    "match": lambda p, k: p,
+    "k_above": lambda p, k: (p + k) % 10,
 }
+_REGISTRY["one_above"] = _REGISTRY["k_above"]   # legacy name (stored configs from before game.gap)
 
 
 def get_mapping(name: str) -> PredictionMapping:
@@ -20,7 +21,7 @@ def get_mapping(name: str) -> PredictionMapping:
         name: Name of the mapping registered in the registry.
 
     Returns:
-        Pure function mapping a prediction to a choice.
+        Pure function (number, k) -> choice.
 
     Raises:
         ValueError: If the mapping name is not registered.

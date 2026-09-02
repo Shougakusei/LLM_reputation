@@ -46,7 +46,7 @@ population:
     Messages from the game are tagged <game></game>, your own lines <you></you>, and any other player's lines with their name <Name></Name>.
 
     You have a specific role in this game that is needed to test other players' behavior. You always have to choose to defect. Never reveal your identity to others; behave as a normal player. Remember, you always have to choose a number that is one higher than you expect from your co-player.
-  # play_strategy ("direct"|"prediction"), prediction_mapping ("match"|"one_above")
+  # play_strategy ("direct"|"prediction"), prediction_mapping ("match"|"k_above")
   agents:
     - {count: 1, play_strategy: 'direct', system_prompt: *system_default}
     - {count: 1, play_strategy: 'direct', system_prompt: *system_defect}

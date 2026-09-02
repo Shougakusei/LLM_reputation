@@ -180,7 +180,7 @@ class Agent:
 
         There is no longer the old assembly (identity + persona + rules) — system is given
         as a single string. {id} is always substituted; payoff parameters
-        {R}/{T}/{P}/{S}/{max_talk_turns} are substituted when game_cfg is known (for all
+        {R}/{T}/{P}/{S}/{max_talk_turns}/{gap} are substituted when game_cfg is known (for all
         production phases it travels in Phase.game_cfg)."""
         system = self.setup.system_prompt.replace("{id}", self.id)
         if game_cfg is not None:
@@ -188,7 +188,8 @@ class Agent:
             system = (system
                       .replace("{R}", f"{p.R:g}").replace("{T}", f"{p.T:g}")
                       .replace("{P}", f"{p.P:g}").replace("{S}", f"{p.S:g}")
-                      .replace("{max_talk_turns}", str(game_cfg.max_talk_turns)))
+                      .replace("{max_talk_turns}", str(game_cfg.max_talk_turns))
+                      .replace("{gap}", str(game_cfg.gap)))
         return system
 
     async def act(self, phase: Phase) -> ActResult:

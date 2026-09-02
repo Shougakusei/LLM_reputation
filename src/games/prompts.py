@@ -6,12 +6,14 @@ in GameCfg (config layer); these builders just fill placeholders by literal repl
 string or a PromptVariants pair (no_history / with_history) — facts are filled into both
 variants and Agent.act picks one by memory state. The rules/payoffs in system are
 substituted by Agent.system_prompt (from AgentSpec.system_prompt), not these builders:
-    talk:                 {partner} {round} {feed}
-    decide:               {partner} {round} {feed} {reason}; one decide_prompt (rationale flag gates reading the rationale)
-    predict:              {partner} {round} {feed} {reason}; one predict_prompt (rationale flag gates reading the rationale)
-    reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff}
+    talk:                 {partner} {round} {feed} {k}
+    decide:               {partner} {round} {feed} {reason} {k}; one decide_prompt (rationale flag gates reading the rationale)
+    predict:              {partner} {round} {feed} {reason} {k}; one predict_prompt (rationale flag gates reading the rationale)
+    reflect:              {partner} {round} {feed} {score} {me} {my_number} {partner_number} {payoff} {k} {partner_k}
     notes:                {round} {partner} {score}
 
+{k} — the agent's own winning gap this round (1 unless game.gap > 1); {partner_k} — the
+co-player's, revealed only with the outcome (reflect / history).
 {feed} — messages of the current round tagged <you>/<name> (src.core.memory.render_turns). The
 agent reads its own accumulated score from the result lines of past rounds (history), so it's
 no longer in the talk/decide headers; {score} remains only in reflect/notes.
@@ -27,14 +29,14 @@ from src.core.config import GameCfg, PromptVariants
 
 
 def talk_context(cfg: GameCfg, partner: str, round: int, feed: str,
-                 score: float = 0.0) -> str | PromptVariants:
+                 score: float = 0.0, k: int = 1) -> str | PromptVariants:
     """Cheap-talk turn context. Empty feed = first turn -> opener template (no Talk block)."""
     step = cfg.talk_open_prompt if not feed else cfg.talk_prompt
-    return _map_step(step, lambda t: _fill(t, partner, round, feed, score))
+    return _map_step(step, lambda t: _fill(t, partner, round, feed, score, k))
 
 
 def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
-                   reason: str = "") -> str | PromptVariants:
+                   reason: str = "", k: int = 1) -> str | PromptVariants:
     """Final number-choice context (direct strategy).
 
     `reason` — why the chat closed (turn limit / mutual agreement); substituted into the
@@ -42,12 +44,12 @@ def decide_context(cfg: GameCfg, partner: str, round: int, feed: str, score: flo
     One template (cfg.decide_prompt); the rationale flag only gates reading the rationale."""
     feed_block = feed if feed else "(no messages were exchanged)"
     return _map_step(cfg.decide_prompt,
-                     lambda t: _fill(t, partner, round, feed_block, score)
+                     lambda t: _fill(t, partner, round, feed_block, score, k)
                      .replace("{reason}", reason))
 
 
 def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: float = 0.0,
-                    reason: str = "") -> str | PromptVariants:
+                    reason: str = "", k: int = 1) -> str | PromptVariants:
     """Partner-number prediction context (prediction strategy).
 
     Mirrors decide: the same static transcript + closing line with {reason}, only the
@@ -55,20 +57,21 @@ def predict_context(cfg: GameCfg, partner: str, round: int, feed: str, score: fl
     the rationale flag only gates reading the rationale."""
     feed_block = feed if feed else "(no messages were exchanged)"
     return _map_step(cfg.predict_prompt,
-                     lambda t: _fill(t, partner, round, feed_block, score)
+                     lambda t: _fill(t, partner, round, feed_block, score, k)
                      .replace("{reason}", reason))
 
 
 def reflect_context(cfg: GameCfg, partner: str, round: int, feed: str, *,
                     me_id: str, my_number: int, partner_number: int, payoff: float,
-                    score: float = 0.0) -> str | PromptVariants:
+                    score: float = 0.0, k: int = 1, partner_k: int = 1) -> str | PromptVariants:
     """Post-game reflection context: both numbers are revealed, the payoff is known.
 
     `{me}` -> "<me_id> (you)" — the agent itself is named the same way as in the diary and the feed.
     """
     feed_block = feed if feed else "(no messages were exchanged)"
     return _map_step(cfg.reflect_prompt, lambda t: (
-        _fill(t, partner, round, feed_block, score)
+        _fill(t, partner, round, feed_block, score, k)
+        .replace("{partner_k}", str(partner_k))
         .replace("{me}", f"{me_id} (you)")
         .replace("{my_number}", str(my_number))
         .replace("{partner_number}", str(partner_number))
@@ -96,9 +99,11 @@ def _map_step(step: str | PromptVariants,
     return fn(step)
 
 
-def _fill(template: str, partner: str, round: int, feed: str, score: float = 0.0) -> str:
+def _fill(template: str, partner: str, round: int, feed: str, score: float = 0.0,
+          k: int = 1) -> str:
     return (
         template
+        .replace("{k}", str(k))
         .replace("{partner}", partner)
         .replace("{round}", str(round))
         .replace("{feed}", feed)

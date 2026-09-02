@@ -31,6 +31,14 @@ class EpisodeAborted(RuntimeError):
         self.rec = rec
 
 
+def _draw_gaps(seed, r: int, gap: int, n_pairings: int) -> list[tuple[int, int]]:
+    """Per-pairing (k_a, k_b) for round r: distinct draws from 1..gap; (1, 1) in the classic game."""
+    if gap <= 1:
+        return [(1, 1)] * n_pairings
+    rng = random.Random(f"{seed}:gap:{r}")
+    return [tuple(rng.sample(range(1, gap + 1), 2)) for _ in range(n_pairings)]
+
+
 async def _guarded(coro, sem: asyncio.Semaphore):
     async with sem:
         return await coro
@@ -52,6 +60,10 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
 
     With `population.evolution` set, a death/replacement step runs before pairing each
     round r ≥ 2 and its events are prepended to `RoundPlan.events`.
+
+    With `game.gap` > 1 each pairing draws two distinct winning gaps from 1..gap out of
+    its own per-round stream (Random(f"{seed}:gap:{r}"), in pairing order) — resumable
+    like the matchmaker, and the matchmaker's stream stays untouched.
     """
     mm = make_matchmaker(cfg.matchmaker)
     mm.setup(pop.ids(), cfg)
@@ -69,9 +81,10 @@ async def run_episode(cfg: EpisodeCfg, pop: Population, *, observer: Observer | 
         plan = await mm.plan_round(pop.ids(), r, rng, actor=None)
         if ev_events:
             plan = replace(plan, events=ev_events + plan.events)
+        ks = _draw_gaps(cfg.seed, r, cfg_r.game.gap, len(plan.pairings))
         recs = await asyncio.gather(*[                                  # fail-fast (C2)
-            _guarded(game.play_pairing(pop.get(a), pop.get(b), r), sem)
-            for a, b in plan.pairings
+            _guarded(game.play_pairing(pop.get(a), pop.get(b), r, k), sem)
+            for (a, b), k in zip(plan.pairings, ks)
         ])
         for c in plan.idle:
             pop.get(c).score += cfg_r.idle_payoff                      # C3

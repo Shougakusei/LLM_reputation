@@ -584,3 +584,11 @@ async def test_provider_error_reraised_with_calls_and_context():
     assert [c.status for c in e.calls] == ["server_error", "network"]
     assert [c.http_attempt for c in e.calls] == [1, 2]
     assert e.calls[0].response_raw == "busy"              # 5xx body saved
+
+
+async def test_system_prompt_substitutes_gap():
+    from src.core.config import GameCfg
+    p = ScriptedProvider(['{"number": 4}'])
+    agent = _agent(p, system="k runs from 1 to {gap}")
+    await agent.act(Phase(PhaseKind.DECIDE, "S", game_cfg=GameCfg(gap=5)))
+    assert p.calls[0][0] == "k runs from 1 to 5"

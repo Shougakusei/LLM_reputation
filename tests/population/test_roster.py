@@ -261,7 +261,7 @@ def test_agent_providers_used_when_population_has_none(created):
 
 
 def test_choice_mapping_threaded_to_agent_setup(created):
-    specs = [AgentSpec(system_prompt="s", choice_mapping="one_above"), _spec("p1")]
+    specs = [AgentSpec(system_prompt="s", choice_mapping="k_above"), _spec("p1")]
     pop = make_population(_pop_cfg(specs)).build(random.Random(0))
-    assert pop.get("A1").setup.choice_mapping == "one_above"
+    assert pop.get("A1").setup.choice_mapping == "k_above"
     assert pop.get("A2").setup.choice_mapping == "match"

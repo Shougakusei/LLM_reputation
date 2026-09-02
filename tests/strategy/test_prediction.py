@@ -15,9 +15,9 @@ def _agent(replies):
 
 async def test_prediction_maps_predicted_to_final_choice():
     agent = _agent(['{"number": 4, "rationale": "mid"}'])
-    d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=True)).decide(agent, "A2", 1, "")
+    d = await PredictionStrategy(get_mapping("k_above"), GameCfg(rationale=True)).decide(agent, "A2", 1, "")
     assert d.predicted == 4          # predict-step output
-    assert d.number == 5             # one_above mapping applied (4 -> 5)
+    assert d.number == 5             # k_above mapping applied (4 -> 5)
     assert d.predicted_rationale == "mid"
     assert d.rationale == "mid"      # reasoning carried into the recorded rationale
 
@@ -30,7 +30,7 @@ async def test_prediction_match_mapping_is_identity():
 
 async def test_prediction_rationale_off_asks_bare_number_and_drops_text():
     agent = _agent(['{"number": 4, "rationale": "volunteered anyway"}'])
-    d = await PredictionStrategy(get_mapping("one_above"), GameCfg(rationale=False)).decide(
+    d = await PredictionStrategy(get_mapping("k_above"), GameCfg(rationale=False)).decide(
         agent, "A2", 1, "")
     assert d.predicted == 4 and d.number == 5
     assert d.rationale == "" and d.predicted_rationale is None   # bare template -> rationale not stored
@@ -42,9 +42,9 @@ def test_make_strategy_builds_by_name():
     from src.strategy.base import make_strategy
     from src.strategy.direct import DirectStrategy
 
-    s = make_strategy("prediction", "one_above", GameCfg())
+    s = make_strategy("prediction", "k_above", GameCfg())
     assert isinstance(s, PredictionStrategy)
-    assert s._mapping is get_mapping("one_above")
+    assert s._mapping is get_mapping("k_above")
 
     assert isinstance(make_strategy("direct", "match", GameCfg()), DirectStrategy)
 

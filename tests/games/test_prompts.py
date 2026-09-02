@@ -89,3 +89,14 @@ def test_reflect_context_without_feed():
     ctx = reflect_context(GameCfg(), "A2", 1, "", me_id="A1",
                           my_number=2, partner_number=2, payoff=3.0)
     assert "(no messages were exchanged)" in ctx
+
+
+def test_k_placeholder_filled_in_step_contexts():
+    cfg = GameCfg(talk_prompt="t {k}", talk_open_prompt="o {k}", decide_prompt="d {k}",
+                  predict_prompt="p {k}", reflect_prompt="r {k} vs {partner_k}")
+    assert talk_context(cfg, "A2", 1, "A2: hi", k=3) == "t 3"
+    assert talk_context(cfg, "A2", 1, "", k=3) == "o 3"
+    assert decide_context(cfg, "A2", 1, "f", k=3) == "d 3"
+    assert predict_context(cfg, "A2", 1, "f", k=3) == "p 3"
+    assert reflect_context(cfg, "A2", 1, "f", me_id="A1", my_number=4, partner_number=4,
+                           payoff=3.0, k=3, partner_k=2) == "r 3 vs 2"

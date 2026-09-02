@@ -33,7 +33,7 @@ class PlayStrategy(Protocol):
     """Play strategy protocol: turns the round state into an agent decision."""
 
     async def decide(self, agent: Agent, partner_id: str, round: int,
-                     feed: str, reason: str = "") -> Decision: ...
+                     feed: str, reason: str = "", k: int = 1) -> Decision: ...
 
 
 def make_strategy(play_strategy: str, prediction_mapping: str, game_cfg,

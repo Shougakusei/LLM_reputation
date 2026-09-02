@@ -15,6 +15,8 @@ class PairingRecord:
     # Pairing results. NULL/empty if the pairing was aborted (finished=False, LLM failure):
     a_number: int | None = None
     b_number: int | None = None
+    a_k: int = 1                    # each side's winning gap this round (1 unless game.gap > 1)
+    b_k: int = 1
     a_rationale: str | None = None  # private; never shown to the partner, kept for analysis
     b_rationale: str | None = None
     outcome: str | None = None      # from A's perspective: CC / DC / CD / DD

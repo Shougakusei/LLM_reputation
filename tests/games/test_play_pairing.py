@@ -337,7 +337,7 @@ async def test_prediction_strategy_records_and_remembers_predictions():
     from src.strategy.prediction import PredictionStrategy
 
     g = ReputationPD(GameCfg(max_talk_turns=0),
-                     strategy=PredictionStrategy(get_mapping("one_above"), GameCfg(max_talk_turns=0)))
+                     strategy=PredictionStrategy(get_mapping("k_above"), GameCfg(max_talk_turns=0)))
     a = _agent("A1", ['{"number": 4, "rationale": "pa"}'])   # predicts 4 -> chooses 5
     b = _agent("A2", ['{"number": 4, "rationale": "pb"}'])   # predicts 4 -> chooses 5
     rec = await g.play_pairing(a, b, 1)
@@ -392,15 +392,47 @@ async def test_parse_exhaustion_aborts_pairing_as_unfinished():
 
 
 async def test_choice_mapping_undercut_is_what_gets_scored_stored_and_remembered():
-    # An honest agent with choice_mapping=one_above: it says 4, the engine plays 5 —
+    # An honest agent with choice_mapping=k_above: it says 4, the engine plays 5 —
     # the record, the payoff and its own memory all carry the played number.
     from src.core.config import ProviderCfg
     g = ReputationPD(GameCfg(max_talk_turns=0))
     cfg = ProviderCfg(base_url="http://x/v1", model="m")
-    a = Agent("A1", AgentSetup("You are A1.", cfg, choice_mapping="one_above"),
+    a = Agent("A1", AgentSetup("You are A1.", cfg, choice_mapping="k_above"),
               ScriptedProvider([_decide(4)]))
     b = _agent("A2", [_decide(4)])
     rec = await g.play_pairing(a, b, 1)
     assert (rec.a_number, rec.b_number) == (5, 4)
     assert rec.outcome == "DC" and (rec.a_payoff, rec.b_payoff) == (5.0, 0.0)
     assert a.memory.entries[0].my_number == 5
+
+
+# ---- gap mode: per-player k ----
+
+async def test_play_pairing_scores_with_the_given_gaps_and_records_them():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(7)])
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, round=1, ks=(3, 2))
+    assert (rec.outcome, rec.a_payoff, rec.b_payoff) == ("DC", 5.0, 0.0)
+    assert (rec.a_k, rec.b_k) == (3, 2)
+    ea, eb = a.memory.entries[0], b.memory.entries[0]
+    assert (ea.my_k, ea.partner_k) == (3, 2)
+    assert (eb.my_k, eb.partner_k) == (2, 3)
+
+
+async def test_play_pairing_fills_k_in_step_prompts():
+    g = ReputationPD(GameCfg(max_talk_turns=2, talk_open_prompt="open k={k}",
+                             talk_prompt="reply k={k}", decide_prompt="decide k={k}"))
+    a = _agent("A1", [_talk("hi", True), _decide(4)])
+    b = _agent("A2", [_talk("hi", True), _decide(4)])
+    await g.play_pairing(a, b, round=1, ks=(3, 2))
+    assert [m[-1].content for _, m in a.provider.calls] == ["open k=3", "decide k=3"]
+    assert [m[-1].content for _, m in b.provider.calls] == ["reply k=2", "decide k=2"]
+
+
+async def test_play_pairing_defaults_to_gap_one():
+    g = ReputationPD(GameCfg(max_talk_turns=0))
+    a = _agent("A1", [_decide(5)])
+    b = _agent("A2", [_decide(4)])
+    rec = await g.play_pairing(a, b, round=1)
+    assert (rec.outcome, rec.a_k, rec.b_k) == ("DC", 1, 1)

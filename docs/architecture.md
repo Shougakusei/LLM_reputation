@@ -103,10 +103,10 @@ A failed LLM call in any phase aborts the pairing (see *Failure handling*).
 
 - **direct** (`strategy/direct.py`): one `DECIDE` phase; the agent picks the number itself.
   An optional `choice_mapping` (`AgentSpec`, same table as below) maps the decided number to
-  the played one — `one_above` undercuts by construction while the agent stays honest.
+  the played one — `k_above` undercuts by construction while the agent stays honest.
 - **prediction** (`strategy/prediction.py`): one `PREDICT` phase (the agent predicts the
   partner's number), then a pure `PredictionMapping` (`strategy/mappings.py`) turns that
-  prediction into its own choice — `match` (copy → cooperate) or `one_above` (rational
+  prediction into its own choice — `match` (copy → cooperate) or `k_above` (rational
   best-response, off-by-one for `T`).
 
 **Strategy is per-agent.** It lives on `AgentSpec`/`AgentSetup` as plain strings (`core`

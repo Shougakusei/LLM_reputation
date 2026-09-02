@@ -192,8 +192,8 @@ async def test_schedule_patch_honored_on_resume(providers):
 
 
 def _pred_cfg(n=2, rounds=1, seed=0):
-    # strategy is now per-agent: the whole population is prediction/one_above
-    spec = AgentSpec(count=n, play_strategy="prediction", prediction_mapping="one_above")
+    # strategy is now per-agent: the whole population is prediction/k_above
+    spec = AgentSpec(count=n, play_strategy="prediction", prediction_mapping="k_above")
     return EpisodeCfg(
         seed=seed,
         rounds=rounds,
@@ -205,7 +205,7 @@ def _pred_cfg(n=2, rounds=1, seed=0):
 
 
 async def test_prediction_strategy_threaded_through_orchestrator(providers):
-    # FixedProvider replies number=4 for every call -> predict 4 -> one_above -> choose 5.
+    # FixedProvider replies number=4 for every call -> predict 4 -> k_above -> choose 5.
     records = []
     await _run(_pred_cfg(n=2, rounds=1), observer=lambda r, p, recs: records.extend(recs))
     assert len(records) == 1
@@ -246,3 +246,33 @@ async def test_no_evolution_events_without_config(providers):
     plans = {}
     await _run(_cfg(n=4, rounds=2), observer=lambda r, p, recs: plans.__setitem__(r, p))
     assert plans[1].events == [] and plans[2].events == []
+
+
+# ---- gap mode: per-pairing k draw ----
+
+async def test_gap_draws_distinct_ks_per_pairing_within_the_bound(providers):
+    cfg = _cfg(n=4, rounds=3)
+    cfg = cfg.__class__(**{**cfg.__dict__, "game": GameCfg(max_talk_turns=0, gap=3)})
+    records = []
+    await _run(cfg, observer=lambda r, p, recs: records.extend(recs))
+    assert len(records) == 6
+    for rec in records:
+        assert rec.a_k != rec.b_k
+        assert {rec.a_k, rec.b_k} <= {1, 2, 3}
+    assert len({(rec.a_k, rec.b_k) for rec in records}) > 1     # actually random, not constant
+
+
+async def test_gap_one_keeps_ks_at_one(providers):
+    records = []
+    await _run(_cfg(n=4, rounds=2), observer=lambda r, p, recs: records.extend(recs))
+    assert {(rec.a_k, rec.b_k) for rec in records} == {(1, 1)}
+
+
+async def test_resume_reproduces_the_ks(providers):
+    cfg = _cfg(n=4, rounds=4)
+    cfg = cfg.__class__(**{**cfg.__dict__, "game": GameCfg(max_talk_turns=0, gap=5)})
+    full, resumed = {}, {}
+    await _run(cfg, observer=lambda r, p, recs: full.__setitem__(r, [(x.a_k, x.b_k) for x in recs]))
+    await _run(cfg, observer=lambda r, p, recs: resumed.__setitem__(r, [(x.a_k, x.b_k) for x in recs]),
+               start_round=3)
+    assert resumed == {3: full[3], 4: full[4]}

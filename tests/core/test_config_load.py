@@ -573,12 +573,12 @@ def test_prediction_config_loads(tmp_path):
             - persona: "p"
               count: 2
               play_strategy: prediction
-              prediction_mapping: one_above
+              prediction_mapping: k_above
         """
     ))
     spec = load_episode(str(f)).population.agents[0]
     assert spec.play_strategy == "prediction"
-    assert spec.prediction_mapping == "one_above"
+    assert spec.prediction_mapping == "k_above"
 
 
 def test_heterogeneous_strategies_per_spec(tmp_path):
@@ -595,12 +595,12 @@ def test_heterogeneous_strategies_per_spec(tmp_path):
           last_name_pool: [Makise, Shiina]
           agents:
             - {persona: "a", count: 1, play_strategy: direct}
-            - {persona: "b", count: 1, play_strategy: prediction, prediction_mapping: one_above}
+            - {persona: "b", count: 1, play_strategy: prediction, prediction_mapping: k_above}
         """
     ))
     a, b = load_episode(str(f)).population.agents
     assert a.play_strategy == "direct"
-    assert b.play_strategy == "prediction" and b.prediction_mapping == "one_above"
+    assert b.play_strategy == "prediction" and b.prediction_mapping == "k_above"
 
 
 def _write_pop_yaml(tmp_path, *, strategy="direct", mapping="match",
@@ -1040,17 +1040,33 @@ def test_choice_mapping_loads_and_is_validated(tmp_path):
           kind: roster
           provider: {base_url: "http://x/v1", model: "m"}
           agents:
-            - {count: 1, choice_mapping: one_above}
+            - {count: 1, choice_mapping: k_above}
             - {count: 1}
         """
     )
     f.write_text(body)
     specs = load_episode(str(f)).population.agents
-    assert [s.choice_mapping for s in specs] == ["one_above", "match"]
-    f.write_text(body.replace("one_above", "two_above"))
+    assert [s.choice_mapping for s in specs] == ["k_above", "match"]
+    f.write_text(body.replace("k_above", "two_above"))
     with pytest.raises(ValueError):
         load_episode(str(f))
-    f.write_text(body.replace("choice_mapping: one_above",
-                              "play_strategy: prediction, choice_mapping: one_above"))
+    f.write_text(body.replace("choice_mapping: k_above",
+                              "play_strategy: prediction, choice_mapping: k_above"))
     with pytest.raises(ValueError, match="choice_mapping"):
+        load_episode(str(f))
+
+
+def test_gap_loaded_and_defaults_to_one(tmp_path):
+    f = tmp_path / "gap.yaml"
+    f.write_text(_episode_yaml("{gap: 3}"))
+    assert load_episode(str(f)).game.gap == 3
+    f.write_text(_episode_yaml("{}"))
+    assert load_episode(str(f)).game.gap == 1
+
+
+@pytest.mark.parametrize("bad", ["0", "6", "2.5", "true", '"3"'])
+def test_gap_must_be_an_integer_between_one_and_five(tmp_path, bad):
+    f = tmp_path / "gap.yaml"
+    f.write_text(_episode_yaml(f"{{gap: {bad}}}"))
+    with pytest.raises(ValueError, match="gap"):
         load_episode(str(f))

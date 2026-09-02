@@ -69,3 +69,18 @@ def test_custom_payoffs():
     assert g.resolve(3, 3) == ("CC", 2, 2)
     assert g.resolve(4, 3) == ("DC", 4, 0)
     assert g.resolve(2, 5) == ("DD", 1, 1)
+
+
+def test_resolve_with_per_player_gaps():
+    # gap mode: each player wins only by exactly ITS OWN k over the other
+    g = _game()
+    assert g.resolve(7, 4, ka=3, kb=2) == ("DC", 5.0, 0.0)   # a is k_a=3 above b
+    assert g.resolve(4, 6, ka=3, kb=2) == ("CD", 0.0, 5.0)   # b is k_b=2 above a
+    assert g.resolve(5, 4, ka=3, kb=2) == ("DD", 1.0, 1.0)   # +1 is no longer a hit
+    assert g.resolve(1, 8, ka=3, kb=2) == ("DC", 5.0, 0.0)   # wraps around the cycle
+    assert g.resolve(4, 4, ka=3, kb=2) == ("CC", 3.0, 3.0)
+
+
+def test_resolve_defaults_to_gap_one():
+    g = _game()
+    assert g.resolve(5, 4) == g.resolve(5, 4, ka=1, kb=1)

@@ -6,7 +6,7 @@
 # "<subject> [npc:<npc>] <sequence> <i>" (the config's own NPC model has an empty label and
 # no npc: part). Within a run every NPC is the same model. The agent list is rebuilt per
 # run from the sequence string: X = cooperator, P = defector (the same cooperator prompt +
-# choice_mapping: one_above); the subject keeps the config's prompt and gets the swept
+# choice_mapping: k_above); the subject keeps the config's prompt and gets the swept
 # model. Idempotent: unfinished runs and runs holding an aborted pairing (rewound and
 # replayed from it) are resumed first, then
 # missing names are filled — re-run to continue. PARALLEL runs play at a time (each its
@@ -70,7 +70,7 @@ def cfg_for(subject_fields: dict, sequence: str, npc_fields: dict | None = None)
     subject = replace(specs[0], provider=replace(specs[0].provider, **subject_fields))
     cooperator = replace(next(s for s in specs[1:] if s.choice_mapping == "match"), count=1)
     cooperator = replace(cooperator, provider=replace(cooperator.provider, **(npc_fields or {})))
-    defector = replace(cooperator, choice_mapping="one_above")
+    defector = replace(cooperator, choice_mapping="k_above")
     npcs = [defector if ch == "P" else cooperator for ch in sequence]
     return replace(cfg, rounds=len(sequence),
                    population=replace(cfg.population, agents=[subject] + npcs))

@@ -33,12 +33,12 @@ population:
   agents:
     - count: 2
       play_strategy: direct            # the agent picks its number itself (default)
-      choice_mapping: match            # direct only: decided -> played number; one_above =
-                                       # honest agent undercut by construction (+1 mod 10)
+      choice_mapping: match            # direct only: decided -> played number; k_above =
+                                       # honest agent undercut by construction (+k mod 10)
       system_prompt: *system_example
     - count: 2
       play_strategy: prediction        # the agent predicts the co-player's number...
-      prediction_mapping: one_above    # ...and plays: match (copy it) | one_above (undercut it)
+      prediction_mapping: k_above    # ...and plays: match (copy it) | k_above (undercut it: +k, k = 1 unless game.gap > 1)
       system_prompt: *system_example
       # provider: {...}                # per-group LLM: used only when population.provider is absent
 
