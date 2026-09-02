@@ -832,3 +832,59 @@ def test_runs_with_holes_lists_closed_runs_too(tmp_path):
         assert st.unfinished_runs() == [(rid2, None)]
     finally:
         st.close()
+
+
+# ---- gap mode: a_k/b_k persistence ----
+
+def test_observe_writes_pairing_gaps(tmp_path):
+    cfg = _cfg(n=3)
+    st = _store(tmp_path)
+    try:
+        st.begin(cfg, _pop(cfg))
+        rec = PairingRecord(
+            round=1, a_id="A1", b_id="A2", transcript=[],
+            a_number=7, b_number=4, a_k=3, b_k=2,
+            outcome="DC", a_payoff=5.0, b_payoff=0.0,
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "calls": 0},
+        )
+        st.observe(1, _plan(idle=["A3"]), [rec])
+        assert st._conn.execute("SELECT a_k, b_k FROM pairings").fetchone() == (3, 2)
+    finally:
+        st.close()
+
+
+def test_init_schema_adds_gap_columns_to_an_old_db(tmp_path):
+    st = _store(tmp_path)
+    st._conn.execute("ALTER TABLE pairings DROP COLUMN a_k")
+    st._conn.execute("ALTER TABLE pairings DROP COLUMN b_k")
+    st.close()
+    st = _store(tmp_path)          # re-open: init_schema migrates additively
+    try:
+        cols = {r[1] for r in st._conn.execute("PRAGMA table_info(pairings)")}
+        assert {"a_k", "b_k"} <= cols
+    finally:
+        st.close()
+
+
+async def test_load_state_restores_gaps_byte_for_byte(tmp_path):
+    # live run with gap>1 and a history that shows both k's; the restored diary must render identically
+    game = GameCfg(max_talk_turns=0, gap=3,
+                   history_prompt="r{round} vs {partner}: my k {k}, its k {partner_k}, "
+                                  "{my_number} vs {partner_number} -> {payoff}")
+    cfg = replace(_cfg(n=4, rounds=3), game=game)
+    pop = _pop(cfg)
+    st = _store(tmp_path)
+    rid = st.begin(cfg, pop)
+    try:
+        await orch.run_episode(cfg, pop, observer=st.observe)
+    finally:
+        await pop.aclose()
+    state = st.load_state(rid, cfg.idle_payoff)
+    try:
+        for a in pop:
+            live = [m.content for m in a.memory.render(None, cfg.game)]
+            restored = [m.content for m in state.memories[a.id].render(None, cfg.game)]
+            assert restored == live
+            assert any(e.my_k != 1 or e.partner_k != 1 for e in state.memories[a.id].entries)
+    finally:
+        st.close()

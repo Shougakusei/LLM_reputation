@@ -272,7 +272,8 @@ class Storage:
         for row in c.execute(
                 """SELECT round_idx, pair_idx, a_id, b_id, a_number, b_number,
                           a_rationale, b_rationale, a_outcome, a_payoff, b_payoff,
-                          a_predicted, b_predicted, a_reflection, b_reflection, a_notes, b_notes
+                          a_predicted, b_predicted, a_reflection, b_reflection, a_notes, b_notes,
+                          a_k, b_k
                    FROM pairings WHERE run_id=? AND finished=1
                    ORDER BY round_idx, pair_idx""", (run_id,)):
             pair_by_round[row[0]].append(row)
@@ -284,15 +285,17 @@ class Storage:
             for row in pair_by_round.get(ri, ()):
                 (_, pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
                  a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                 a_reflection, b_reflection, a_notes, b_notes) = row
+                 a_reflection, b_reflection, a_notes, b_notes, a_k, b_k) = row
                 transcript = self._load_transcript(run_id, ri, pair_idx)
                 # side A — as-is; side B — mirror the perspective (partner, numbers, outcome)
                 self._restore_entry(memories[a_id], running, a_id, ri, b_id, transcript,
                                     a_number, a_rationale, b_number, a_outcome,
-                                    a_payoff, b_payoff, a_predicted, a_reflection, a_notes)
+                                    a_payoff, b_payoff, a_predicted, a_reflection, a_notes,
+                                    a_k, b_k)
                 self._restore_entry(memories[b_id], running, b_id, ri, a_id, transcript,
                                     b_number, b_rationale, a_number, _FLIP.get(a_outcome, a_outcome),
-                                    b_payoff, a_payoff, b_predicted, b_reflection, b_notes)
+                                    b_payoff, a_payoff, b_predicted, b_reflection, b_notes,
+                                    b_k, a_k)
 
         last_round = rounds[-1] if rounds else 0
         return RunState(last_round=last_round, scores=dict(running), memories=memories)
@@ -310,7 +313,7 @@ class Storage:
     def _restore_entry(memory: Memory, running: dict[str, float], aid: str, round: int,
                        partner: str, transcript: list[dict], my_number, my_rationale,
                        partner_number, outcome, payoff, partner_payoff, my_predicted,
-                       my_reflection, notes) -> None:
+                       my_reflection, notes, my_k: int = 1, partner_k: int = 1) -> None:
         # score — the score BEFORE this round (same as in the live _remember: agent.score - payoff)
         memory.add(MemoryEntry(
             round=round, my_id=aid, partner_id=partner, transcript=transcript,
@@ -318,6 +321,7 @@ class Storage:
             partner_number=partner_number, outcome=outcome,
             payoff=payoff, partner_payoff=partner_payoff, score=running[aid],
             my_predicted=my_predicted, my_reflection=my_reflection,
+            my_k=my_k, partner_k=partner_k,
         ))
         running[aid] += payoff
         if notes is not None:                              # the round on which the agent folded notes
@@ -354,14 +358,14 @@ class Storage:
                 self._conn.execute(
                     """INSERT INTO pairings(
                            run_id, round_idx, pair_idx, a_id, b_id, finished,
-                           a_number, b_number, a_rationale, b_rationale,
+                           a_number, b_number, a_k, b_k, a_rationale, b_rationale,
                            a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
                            a_reflection, b_reflection, a_notes, b_notes,
                            usage_prompt_tokens, usage_completion_tokens, usage_calls)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         rid, round, pair_idx, rec.a_id, rec.b_id, int(rec.finished),
-                        rec.a_number, rec.b_number, rec.a_rationale, rec.b_rationale,
+                        rec.a_number, rec.b_number, rec.a_k, rec.b_k, rec.a_rationale, rec.b_rationale,
                         rec.outcome, rec.a_payoff, rec.b_payoff, rec.a_predicted, rec.b_predicted,
                         rec.a_reflection, rec.b_reflection, rec.a_notes, rec.b_notes,
                         u.get("prompt_tokens"), u.get("completion_tokens"), u.get("calls"),

@@ -360,13 +360,14 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
         pairings = conn.execute(
             """SELECT pair_idx, a_id, b_id, a_number, b_number, a_rationale, b_rationale,
                       a_outcome, a_payoff, b_payoff, a_predicted, b_predicted,
-                      a_reflection, b_reflection, a_notes, b_notes, usage_calls, finished
+                      a_reflection, b_reflection, a_notes, b_notes, usage_calls, finished,
+                      a_k, b_k
                FROM pairings WHERE run_id=? AND round_idx=? ORDER BY pair_idx""",
             (run_id, r),
         ).fetchall()
         for (pi, a_id, b_id, a_num, b_num, a_rat, b_rat,
              outcome, a_pay, b_pay, a_pred, b_pred, a_refl, b_refl,
-             a_notes, b_notes, calls, finished) in pairings:
+             a_notes, b_notes, calls, finished, a_k, b_k) in pairings:
             print(f"\n  {a_id} vs {b_id}  ({a_id} opens):")
             msgs = conn.execute(
                 """SELECT speaker, text, ready FROM messages
@@ -383,8 +384,9 @@ def replay(conn, run_id, show_config=False, show_calls=False, show_notes=False):
             if not finished:                          # aborted pairing: no result
                 print(f"    (pairing aborted by LLM failure — no result)  [{calls} llm calls]")
             else:
+                ks = f" (k: {a_id}={a_k}, {b_id}={b_k})" if (a_k, b_k) != (1, 1) else ""
                 print(
-                    f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}   "
+                    f"    choices: {a_id}={a_num}, {b_id}={b_num}  ->  {outcome}{ks}   "
                     f"(payoffs {a_id}={a_pay:g}, {b_id}={b_pay:g})  [{calls} llm calls]"
                 )
                 if show_predictions:                        # gated by config (play_strategy)

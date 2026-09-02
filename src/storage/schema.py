@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS pairings (
     finished    INTEGER NOT NULL DEFAULT 1,  -- 1 = played to completion; 0 = aborted by an LLM failure (no results)
     a_number    INTEGER,                     -- results are NULL if finished=0 (see CHECK)
     b_number    INTEGER,
+    a_k         INTEGER NOT NULL DEFAULT 1,  -- each side's winning gap (1 unless game.gap > 1)
+    b_k         INTEGER NOT NULL DEFAULT 1,
     a_rationale TEXT,
     b_rationale TEXT,
     a_outcome   TEXT,
@@ -148,7 +150,7 @@ CREATE INDEX IF NOT EXISTS ix_runs_config_hash ON runs(config_hash);
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    # Additive migration for databases created before the evolution columns existed.
+    # Additive migrations for databases created before newer columns existed.
     cols = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
     for name, ddl in (("born_round", "INTEGER NOT NULL DEFAULT 1"),
                       ("died_round", "INTEGER"),
@@ -156,4 +158,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
                       ("invincible", "INTEGER NOT NULL DEFAULT 0")):
         if name not in cols:
             conn.execute(f"ALTER TABLE agents ADD COLUMN {name} {ddl}")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(pairings)")}
+    for name in ("a_k", "b_k"):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE pairings ADD COLUMN {name} INTEGER NOT NULL DEFAULT 1")
     conn.commit()
